@@ -1,1 +1,8 @@
-{}
+{
+  "builds": [
+    { "src": "api/cycle.py", "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/api/cycle", "dest": "/api/cycle.py" }
+  ]
+}
