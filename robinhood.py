@@ -1,14 +1,14 @@
 """
-Robinhood Crypto API client.
+Robinhood Crypto API client (v1 endpoints).
 
 Auth: Ed25519-signed headers (x-api-key, x-timestamp, x-signature).
-Signing message = api_key + timestamp + path_with_querystring + body.
-All requests go through _request() which handles retries and rate limits.
+Signing message = api_key + timestamp + path_with_querystring + METHOD + body
 """
 
 from __future__ import annotations
 
 import base64
+import datetime
 import json
 import logging
 import time
@@ -49,7 +49,7 @@ class OrderResult:
     state: str              # "open" | "filled" | "canceled" | "failed" | "pending"
     side: str
     symbol: str
-    filled_quantity: float  # filled_asset_quantity from response
+    filled_quantity: float
     average_price: float
 
 
@@ -62,23 +62,21 @@ class RobinhoodClient:
             "Content-Type": "application/json; charset=utf-8",
             "Accept": "application/json",
         })
-        self._account_number: str | None = None  # lazily fetched
 
     # ── Auth ──────────────────────────────────────────────────────────────────
 
-    def _sign_headers(self, signed_path: str, body: str = "") -> dict[str, str]:
+    def _sign_headers(self, method: str, path: str, body: str = "") -> dict[str, str]:
         """
-        signed_path must include the query string, e.g.
-        "/api/v1/crypto/trading/holdings/?account_number=ABC"
-        Message = api_key + timestamp + signed_path + body
+        path must include the query string if present.
+        Message = api_key + timestamp + path + METHOD + body  (per Robinhood docs)
         """
-        timestamp = str(int(time.time()))
-        message = self._api_key + timestamp + signed_path + body
-        sig_bytes: bytes = self._private_key.sign(message.encode()).signature
+        timestamp = str(int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp()))
+        message = self._api_key + timestamp + path + method.upper() + body
+        sig_bytes: bytes = self._private_key.sign(message.encode("utf-8")).signature
         return {
             "x-api-key": self._api_key,
             "x-timestamp": timestamp,
-            "x-signature": base64.b64encode(sig_bytes).decode(),
+            "x-signature": base64.b64encode(sig_bytes).decode("utf-8"),
         }
 
     # ── HTTP ──────────────────────────────────────────────────────────────────
@@ -91,16 +89,11 @@ class RobinhoodClient:
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         body_str = json.dumps(payload) if payload else ""
-
-        # Build the full path including query string for signing
-        signed_path = path
-        if params:
-            signed_path = f"{path}?{urlencode(params)}"
-
+        signed_path = path + ("?" + urlencode(params) if params else "")
         url = BASE_URL + path
 
         for attempt in range(1, MAX_RETRIES + 1):
-            headers = self._sign_headers(signed_path, body_str)
+            headers = self._sign_headers(method, signed_path, body_str)
             try:
                 resp: Response = self._session.request(
                     method,
@@ -133,32 +126,15 @@ class RobinhoodClient:
         data = self._request("GET", "/api/v1/crypto/trading/accounts/")
         results = data.get("results", [])
         acct = results[0] if results else data
-        info = AccountInfo(
+        return AccountInfo(
             account_number=acct.get("account_number", ""),
             buying_power=float(acct.get("buying_power", 0)),
             currency=acct.get("currency_code", "USD"),
         )
-        # Cache account number for use in subsequent calls
-        if info.account_number and not self._account_number:
-            self._account_number = info.account_number
-            logger.debug("Account number cached: %s", self._account_number)
-        return info
-
-    def _get_account_number(self) -> str:
-        """Return cached account number, fetching it first if needed."""
-        if not self._account_number:
-            self.get_account()
-        if not self._account_number:
-            raise RuntimeError("Could not determine account number")
-        return self._account_number
 
     def get_holdings(self) -> list[Holding]:
-        account_number = self._get_account_number()
-        data = self._request(
-            "GET",
-            "/api/v1/crypto/trading/holdings/",
-            params={"account_number": account_number},
-        )
+        # v1 does not take account_number — filter by asset_code if needed
+        data = self._request("GET", "/api/v1/crypto/trading/holdings/")
         results = data.get("results", [])
         holdings = []
         for h in results:
@@ -180,11 +156,8 @@ class RobinhoodClient:
     # ── Market data ───────────────────────────────────────────────────────────
 
     def get_best_bid_ask(self, symbol: str = "BTC-USD") -> tuple[float, float]:
-        data = self._request(
-            "GET",
-            "/api/v1/crypto/market_data/best_bid_ask/",
-            params={"symbol": symbol},
-        )
+        data = self._request("GET", "/api/v1/crypto/marketdata/best_bid_ask/",
+                             params={"symbol": symbol})
         results = data.get("results", [data])
         item = results[0] if results else data
         bid = float(item.get("bid_inclusive_of_sell_spread", item.get("bid", 0)))
@@ -198,7 +171,7 @@ class RobinhoodClient:
     def get_estimated_price(self, symbol: str, side: str, quantity: float) -> float:
         data = self._request(
             "GET",
-            "/api/v1/crypto/market_data/estimated_price/",
+            "/api/v1/crypto/marketdata/estimated_price/",
             params={"symbol": symbol, "side": side, "quantity": f"{quantity:.8f}"},
         )
         results = data.get("results", [data])
@@ -212,23 +185,16 @@ class RobinhoodClient:
         side: str,          # "buy" | "sell"
         asset_quantity: float,
     ) -> OrderResult:
-        account_number = self._get_account_number()
         payload: dict[str, Any] = {
             "client_order_id": str(uuid.uuid4()),
             "side": side,
             "symbol": symbol,
             "type": "market",
             "market_order_config": {
-                "asset_quantity": asset_quantity,  # float, not string
+                "asset_quantity": asset_quantity,
             },
         }
-        # account_number goes in the query string, not the body
-        data = self._request(
-            "POST",
-            "/api/v1/crypto/trading/orders/",
-            params={"account_number": account_number},
-            payload=payload,
-        )
+        data = self._request("POST", "/api/v1/crypto/trading/orders/", payload=payload)
         return _parse_order(data)
 
     def get_order(self, order_id: str) -> OrderResult:
@@ -260,12 +226,9 @@ class RobinhoodClient:
 
 
 def _parse_order(data: dict[str, Any]) -> OrderResult:
-    # Use top-level filled_asset_quantity and average_price from the response.
-    # The executions list may be empty until the order settles.
     filled_qty = float(data.get("filled_asset_quantity", 0))
     avg_price = float(data.get("average_price") or 0)
 
-    # If top-level fields are zero (order just placed), fall back to executions
     if filled_qty == 0 and data.get("executions"):
         executions = data["executions"]
         filled_qty = sum(float(e.get("quantity", 0)) for e in executions)
