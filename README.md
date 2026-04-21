@@ -1,6 +1,6 @@
 # FGI Crypto Trading Bot
 
-A systematic BTC trading bot that uses the **Fear & Greed Index** as a contrarian signal, combined with z-score normalization, Bayesian confidence tracking, and z-score-scaled position sizing. Runs on Robinhood Crypto via their Ed25519-authenticated API.
+A systematic SOL trading bot that uses the **Fear & Greed Index** as a contrarian signal, combined with z-score normalization, Bayesian confidence tracking, and z-score-scaled position sizing. Runs on Robinhood Crypto via their Ed25519-authenticated API.
 
 ## How it works
 
@@ -10,7 +10,7 @@ Every hour the bot:
 2. **Computes a z-score** of today's FGI against a rolling 55-day history — how extreme is the current sentiment relative to recent baseline?
 3. **Applies a Bayesian confidence filter** — a Beta-Binomial updater that learns from the bot's own trade outcomes and adjusts signal confidence over time
 4. **Scales the buy size with fear intensity** — the more extreme the fear, the larger the position. Mild fear buys 24% of available cash; peak fear buys up to 74%
-5. **Sells a fixed 65%** of BTC holdings on greed signals, letting the rest compound
+5. **Sells a fixed 65%** of SOL holdings on greed signals, letting the rest compound
 
 ```
 FGI z-score < -1.95  →  BUY  (scaled by |z|, from 24% → 74% of cash)
@@ -20,9 +20,9 @@ confidence < 0.53    →  HOLD
 
 ## Strategy performance
 
-Backtested on BTC-USD with 200-simulation Monte Carlo per period, $100 starting capital:
+Backtested on SOL-USD with 200-simulation Monte Carlo per period, $100 starting capital:
 
-| Period | BTC Buy & Hold | VOO (S&P 500) | Symmetric | Asymmetric | **Z-Scaled** |
+| Period | SOL Buy & Hold | VOO (S&P 500) | Symmetric | Asymmetric | **Z-Scaled** |
 |--------|---------------|---------------|-----------|------------|-------------|
 | 1 year | -19.8%        | +37.0%        | +6.3%     | +16.0%     | +12.5%      |
 | 2 year | +12.1%        | +41.6%        | +67.7%    | +66.8%     | **+73.2%**  |
@@ -77,7 +77,7 @@ python main.py --status
 # Run Monte Carlo backtest
 python main.py --backtest
 
-# Five-way strategy comparison (Symmetric / Asymmetric / Z-Scaled / BTC B&H / VOO B&H)
+# Five-way strategy comparison (Symmetric / Asymmetric / Z-Scaled / SOL B&H / VOO B&H)
 python run_scaled.py
 ```
 

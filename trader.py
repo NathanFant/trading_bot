@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class Trader:
     def __init__(self) -> None:
         # Config from environment
-        self.symbol: str = os.environ.get("SYMBOL", "BTC-USD")
+        self.symbol: str = os.environ.get("SYMBOL", "SOL-USD")
         self.dry_run: bool = os.environ.get("DRY_RUN", "true").lower() not in ("false", "0", "no")
         self.scale_buy_with_z: bool = os.environ.get("SCALE_BUY_WITH_Z", "true").lower() not in ("false", "0", "no")
         self.min_buy_pct: float = float(os.environ.get("MIN_BUY_PCT", "0.24"))

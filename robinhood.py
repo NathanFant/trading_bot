@@ -155,7 +155,7 @@ class RobinhoodClient:
 
     # ── Market data ───────────────────────────────────────────────────────────
 
-    def get_best_bid_ask(self, symbol: str = "BTC-USD") -> tuple[float, float]:
+    def get_best_bid_ask(self, symbol: str = "SOL-USD") -> tuple[float, float]:
         data = self._request("GET", "/api/v1/crypto/marketdata/best_bid_ask/",
                              params={"symbol": symbol})
         results = data.get("results", [data])
@@ -164,7 +164,7 @@ class RobinhoodClient:
         ask = float(item.get("ask_inclusive_of_buy_spread", item.get("ask", 0)))
         return bid, ask
 
-    def get_mid_price(self, symbol: str = "BTC-USD") -> float:
+    def get_mid_price(self, symbol: str = "SOL-USD") -> float:
         bid, ask = self.get_best_bid_ask(symbol)
         return (bid + ask) / 2
 

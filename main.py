@@ -76,7 +76,7 @@ def cmd_status() -> None:
         api_key=os.environ["ROBINHOOD_API_KEY"],
         private_key_b64=os.environ["ROBINHOOD_PRIVATE_KEY"],
     )
-    symbol = os.environ.get("SYMBOL", "BTC-USD")
+    symbol = os.environ.get("SYMBOL", "SOL-USD")
     asset = symbol.split("-")[0]
 
     print("\n── Account ──────────────────────────────────────")

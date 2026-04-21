@@ -28,7 +28,7 @@ ROBINHOOD_PRIVATE_KEY    <base64 private key>
 COINMARKETCAP_API_KEY    <optional>
 DISCORD_WEBHOOK_URL      <optional>
 CRON_SECRET              <any random string — protects /api/cycle>
-SYMBOL                   BTC-USD
+SYMBOL                   SOL-USD
 DRY_RUN                  true
 SCALE_BUY_WITH_Z         true
 MIN_BUY_PCT              0.24

@@ -79,9 +79,9 @@ def send_error(webhook_url: str, error: str, context: str = "") -> None:
 
 def send_daily_summary(
     webhook_url: str,
-    btc_balance: float,
+    sol_balance: float,
     usd_balance: float,
-    btc_price: float,
+    sol_price: float,
     total_value: float,
     trades_today: int,
     fgi_value: int,
@@ -93,9 +93,9 @@ def send_daily_summary(
             "color": 0x7289DA,
             "fields": [
                 {"name": "Portfolio Value", "value": f"${total_value:,.2f}",     "inline": True},
-                {"name": "BTC Balance",     "value": f"{btc_balance:.8f} BTC",   "inline": True},
+                {"name": "SOL Balance",     "value": f"{sol_balance:.8f} SOL",   "inline": True},
                 {"name": "USD Balance",     "value": f"${usd_balance:,.2f}",     "inline": True},
-                {"name": "BTC Price",       "value": f"${btc_price:,.2f}",       "inline": True},
+                {"name": "SOL Price",       "value": f"${sol_price:,.2f}",       "inline": True},
                 {"name": "Trades Today",    "value": str(trades_today),          "inline": True},
                 {"name": "Fear & Greed",    "value": f"{fgi_value} — {fgi_label}", "inline": True},
             ],

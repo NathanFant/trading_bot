@@ -1,12 +1,12 @@
 """
-Five-way comparison: Symmetric vs Asymmetric vs Z-Scaled vs BTC B&H vs VOO B&H.
+Five-way comparison: Symmetric vs Asymmetric vs Z-Scaled vs SOL B&H vs VOO B&H.
 
 Z-Scaled — buy fraction ramps up as FGI z-score grows more extreme.
            At threshold z: buy min_buy_pct of cash.
            At max_scale_z: buy max_buy_pct of cash.
            Sell fraction is independent (same as asymmetric).
 
-Periods: 12, 24, 36, 60 months  |  Starting capital: $100  |  BTC-USD
+Periods: 12, 24, 36, 60 months  |  Starting capital: $100  |  SOL-USD
 200 Monte Carlo simulations per strategy per period.
 """
 
@@ -41,7 +41,7 @@ from backtest import (
     run_scaled_monte_carlo,
 )
 
-SYMBOL = "BTC-USD"
+SYMBOL = "SOL-USD"
 STARTING = 100.0
 N_SIMS = 200
 SPREAD = SPREAD_PCT[SYMBOL]
@@ -88,12 +88,12 @@ def run_period(label: str, days: int) -> Row:
     print(f"{'='*64}")
 
     bars = load_aligned_data(days=days, symbol=SYMBOL)
-    print(f"  Bars: {len(bars)}  |  BTC ${bars[0].price:,.0f} → ${bars[-1].price:,.0f}")
+    print(f"  Bars: {len(bars)}  |  SOL ${bars[0].price:,.2f} → ${bars[-1].price:,.2f}")
 
     bh_qty = STARTING / (bars[0].price * (1 + SPREAD))
     bh_val = bh_qty * bars[-1].price * (1 - SPREAD)
     bh_pct = (bh_val - STARTING) / STARTING * 100
-    print(f"  BTC Buy & Hold: ${bh_val:.2f}  ({bh_pct:+.1f}%)")
+    print(f"  SOL Buy & Hold: ${bh_val:.2f}  ({bh_pct:+.1f}%)")
 
     voo_pct, voo_end = fetch_voo_return(days, STARTING)
     print(f"  VOO Buy & Hold: ${voo_end:.2f}  ({voo_pct:+.1f}%)\n")
@@ -126,7 +126,7 @@ def print_summary(rows: list[Row]) -> None:
     print(f"{'='*W}")
 
     # Returns + risk table
-    print(f"\n  {'Period':<12} {'BTC B&H':>8} {'VOO B&H':>8} │ "
+    print(f"\n  {'Period':<12} {'SOL B&H':>8} {'VOO B&H':>8} │ "
           f"{'Sym':>7} {'Shr':>6} │ "
           f"{'Asym':>7} {'Shr':>6} │ "
           f"{'Scaled':>7} {'Shr':>6}")
@@ -141,10 +141,10 @@ def print_summary(rows: list[Row]) -> None:
 
     # Dollar outcomes
     print(f"\n  Dollar outcomes on ${STARTING:.0f}:")
-    print(f"  {'Period':<12} {'BTC B&H':>9} {'VOO B&H':>9} {'Sym':>9} {'Asym':>9} {'Scaled':>9}  {'Best Strategy':>14}")
+    print(f"  {'Period':<12} {'SOL B&H':>9} {'VOO B&H':>9} {'Sym':>9} {'Asym':>9} {'Scaled':>9}  {'Best Strategy':>14}")
     print(f"  {'-'*78}")
     for r in rows:
-        btc_end = STARTING * (1 + r.btc_bh_pct / 100)
+        btc_end = STARTING * (1 + r.btc_bh_pct / 100)  # reused var name, now SOL B&H
         ends = {"Symmetric": r.sym, "Asymmetric": r.asym, "Z-Scaled": r.scaled}
         best_name = max(ends, key=lambda k: ends[k].sharpe_ratio)
         print(f"  {r.label:<12} ${btc_end:>7.2f}  ${r.voo_end:>7.2f}"
@@ -153,7 +153,7 @@ def print_summary(rows: list[Row]) -> None:
 
     # Beats benchmarks
     print(f"\n  Beats benchmarks (by return):")
-    print(f"  {'Period':<12} {'Sym>BTC':>8} {'Sym>VOO':>8} {'Asym>BTC':>9} {'Asym>VOO':>9} {'Scl>BTC':>8} {'Scl>VOO':>8}")
+    print(f"  {'Period':<12} {'Sym>SOL':>8} {'Sym>VOO':>8} {'Asym>SOL':>9} {'Asym>VOO':>9} {'Scl>SOL':>8} {'Scl>VOO':>8}")
     print(f"  {'-'*68}")
     for r in rows:
         def yn(cond: bool) -> str: return "YES ✓" if cond else "NO  ✗"
