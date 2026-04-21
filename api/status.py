@@ -1,0 +1,141 @@
+"""
+Vercel serverless function — returns live bot status as JSON.
+Used by the dashboard at index.html.
+Protected by the same CRON_SECRET (passed as Authorization: Bearer or ?token=).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env.local"))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-8s %(message)s")
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
+
+_SECRET = os.environ.get("CRON_SECRET", "")
+
+
+def _fgi_and_signal() -> dict:  # type: ignore[type-arg]
+    from fgi import fetch_current, fetch_history, FGIReading
+    from signals import BayesianUpdater, compute_signal
+    from kv import kv_get
+
+    history_days = int(os.environ.get("FGI_HISTORY_DAYS", "55"))
+    history = fetch_history(history_days)
+    current = fetch_current(coinmarketcap_api_key=os.environ.get("COINMARKETCAP_API_KEY", ""))
+
+    state = kv_get("bayesian_state")
+    bayesian = BayesianUpdater.from_state(state) if state else BayesianUpdater()
+
+    signal = compute_signal(
+        history, current, bayesian,
+        buy_z_threshold=float(os.environ.get("BUY_Z_THRESHOLD", "-1.95")),
+        sell_z_threshold=float(os.environ.get("SELL_Z_THRESHOLD", "2.65")),
+    )
+    return {
+        "value": current.value,
+        "label": current.label,
+        "z_score": round(signal.z_score, 3),
+        "mean": round(signal.fgi_mean, 1),
+        "std": round(signal.fgi_std, 1),
+        "signal": signal.action,
+        "confidence": round(signal.confidence, 3),
+        "reason": signal.reason,
+    }
+
+
+def _portfolio() -> dict:  # type: ignore[type-arg]
+    from robinhood import RobinhoodClient
+    symbol = os.environ.get("SYMBOL", "BTC-USD")
+    asset = symbol.split("-")[0]
+    client = RobinhoodClient(
+        api_key=os.environ["ROBINHOOD_API_KEY"],
+        private_key_b64=os.environ["ROBINHOOD_PRIVATE_KEY"],
+    )
+    acct = client.get_account()
+    holding = client.get_holding(asset)
+    bid, ask = client.get_best_bid_ask(symbol)
+    price = (bid + ask) / 2
+    btc_qty = holding.total_quantity if holding else 0.0
+    btc_value = btc_qty * price
+    return {
+        "cash": round(acct.buying_power, 2),
+        "btc_qty": round(btc_qty, 8),
+        "btc_value": round(btc_value, 2),
+        "total": round(acct.buying_power + btc_value, 2),
+        "btc_price": round(price, 2),
+    }
+
+
+def _bayesian() -> dict | None:  # type: ignore[type-arg]
+    from kv import kv_get
+    from signals import BayesianUpdater
+    state = kv_get("bayesian_state")
+    if not state:
+        return None
+    b = BayesianUpdater.from_state(state)
+    return {
+        "buy_confidence": round(b.confidence("BUY"), 3),
+        "sell_confidence": round(b.confidence("SELL"), 3),
+    }
+
+
+def app(environ, start_response):  # type: ignore[type-arg]
+    # Auth: Authorization header or ?token= query param
+    auth = environ.get("HTTP_AUTHORIZATION", "")
+    qs = dict(p.split("=", 1) for p in environ.get("QUERY_STRING", "").split("&") if "=" in p)
+    if _SECRET and auth != f"Bearer {_SECRET}" and qs.get("token") != _SECRET:
+        start_response("401 Unauthorized", [("Content-Type", "application/json")])
+        return [b'{"error":"unauthorized"}']
+
+    result: dict = {  # type: ignore[type-arg]
+        "timestamp": int(time.time()),
+        "dry_run": os.environ.get("DRY_RUN", "true").lower() not in ("false", "0", "no"),
+        "symbol": os.environ.get("SYMBOL", "BTC-USD"),
+        "config": {
+            "min_buy_pct": float(os.environ.get("MIN_BUY_PCT", "0.24")),
+            "max_buy_pct": float(os.environ.get("MAX_BUY_PCT", "0.74")),
+            "sell_pct": float(os.environ.get("SELL_PCT", "0.65")),
+            "buy_z": float(os.environ.get("BUY_Z_THRESHOLD", "-1.95")),
+            "sell_z": float(os.environ.get("SELL_Z_THRESHOLD", "2.65")),
+            "min_confidence": float(os.environ.get("MIN_CONFIDENCE", "0.53")),
+        },
+    }
+
+    try:
+        result["fgi"] = _fgi_and_signal()
+    except Exception as exc:
+        logging.exception("FGI fetch failed")
+        result["fgi"] = {"error": str(exc)}
+
+    try:
+        result["portfolio"] = _portfolio()
+    except Exception as exc:
+        logging.exception("Portfolio fetch failed")
+        result["portfolio"] = {"error": str(exc)}
+
+    try:
+        result["bayesian"] = _bayesian()
+    except Exception as exc:
+        result["bayesian"] = None
+
+    try:
+        from kv import kv_get_trades
+        result["trades"] = list(reversed(kv_get_trades()))  # newest first
+    except Exception:
+        result["trades"] = []
+
+    start_response("200 OK", [
+        ("Content-Type", "application/json"),
+        ("Access-Control-Allow-Origin", "*"),
+    ])
+    return [json.dumps(result).encode()]

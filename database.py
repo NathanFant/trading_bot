@@ -109,16 +109,27 @@ def insert_trade(
     order_id: str,
     dry_run: bool,
 ) -> int:
+    ts = int(time.time())
     with _conn() as con:
         cur = con.execute(
             """INSERT INTO trades
                (timestamp, action, symbol, quantity, price, usd_amount,
                 fgi_value, z_score, confidence, order_id, dry_run)
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (int(time.time()), action, symbol, quantity, price, usd_amount,
+            (ts, action, symbol, quantity, price, usd_amount,
              fgi_value, z_score, confidence, order_id, int(dry_run)),
         )
-        return cur.lastrowid or 0
+        trade_id = cur.lastrowid or 0
+
+    from kv import available as kv_available, kv_push_trade
+    if kv_available():
+        kv_push_trade({
+            "id": trade_id, "timestamp": ts, "action": action,
+            "symbol": symbol, "quantity": quantity, "price": price,
+            "usd_amount": usd_amount, "fgi_value": fgi_value,
+            "z_score": z_score, "confidence": confidence, "dry_run": dry_run,
+        })
+    return trade_id
 
 
 def get_recent_trades(limit: int = 20) -> list[dict]:  # type: ignore[type-arg]

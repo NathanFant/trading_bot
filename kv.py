@@ -53,3 +53,28 @@ def kv_set(key: str, value: object) -> None:
         _cmd("SET", key, json.dumps(value))
     except Exception as exc:
         logger.warning("KV set %s failed: %s", key, exc)
+
+
+def kv_push_trade(trade: dict) -> None:  # type: ignore[type-arg]
+    """Append trade to recent_trades list, keeping last 50."""
+    if not available():
+        return
+    try:
+        _cmd("RPUSH", "recent_trades", json.dumps(trade))
+        _cmd("LTRIM", "recent_trades", "-50", "-1")
+    except Exception as exc:
+        logger.warning("KV push trade failed: %s", exc)
+
+
+def kv_get_trades() -> list:  # type: ignore[type-arg]
+    """Return up to 50 recent trades from KV, newest last."""
+    if not available():
+        return []
+    try:
+        result = _cmd("LRANGE", "recent_trades", "0", "-1")
+        if not isinstance(result, list):
+            return []
+        return [json.loads(t) for t in result]
+    except Exception as exc:
+        logger.warning("KV get trades failed: %s", exc)
+        return []

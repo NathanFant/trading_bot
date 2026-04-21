@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FGI Trading Bot</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0d1117;
+    --surface: #161b22;
+    --border:  #30363d;
+    --text:    #e6edf3;
+    --muted:   #8b949e;
+    --green:   #3fb950;
+    --red:     #f85149;
+    --yellow:  #d29922;
+    --blue:    #58a6ff;
+    --orange:  #db6d28;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100vh; }
+
+  /* ── Auth screen ── */
+  #auth-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 360px; text-align: center; }
+  .auth-card h2 { margin-bottom: 8px; }
+  .auth-card p { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+  .auth-card input { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; margin-bottom: 12px; outline: none; }
+  .auth-card input:focus { border-color: var(--blue); }
+  .auth-card button { width: 100%; padding: 10px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
+  .auth-card button:hover { opacity: 0.85; }
+
+  /* ── Dashboard ── */
+  #dashboard { display: none; max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .header-left h1 { font-size: 20px; font-weight: 700; }
+  .header-left p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-dry  { background: rgba(88,166,255,.15); color: var(--blue); border: 1px solid rgba(88,166,255,.3); }
+  .badge-live { background: rgba(63,185,80,.15);  color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+  .refresh-btn { padding: 6px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; cursor: pointer; }
+  .refresh-btn:hover { border-color: var(--blue); }
+
+  /* ── Cards grid ── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+  .card-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .card-value { font-size: 24px; font-weight: 700; line-height: 1; }
+  .card-sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .up   { color: var(--green); }
+  .down { color: var(--red); }
+  .neutral { color: var(--muted); }
+
+  /* ── FGI panel ── */
+  .fgi-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px; margin-bottom: 16px; }
+  .fgi-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+  .fgi-header h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .fgi-value-row { display: flex; align-items: baseline; gap: 10px; }
+  .fgi-number { font-size: 48px; font-weight: 800; line-height: 1; }
+  .fgi-label  { font-size: 16px; font-weight: 600; }
+
+  .fgi-bar-wrap { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(to right, #ef4444 0%, #f97316 25%, #eab308 45%, #84cc16 60%, #22c55e 100%); margin: 14px 0 8px; }
+  .fgi-marker { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--bg); box-shadow: 0 0 0 2px #fff; transition: left .5s ease; }
+
+  .fgi-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 16px; }
+
+  .signal-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .signal-badge { padding: 5px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; letter-spacing: .5px; }
+  .signal-BUY  { background: rgba(63,185,80,.15);  color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+  .signal-SELL { background: rgba(248,81,73,.15);  color: var(--red);   border: 1px solid rgba(248,81,73,.4); }
+  .signal-HOLD { background: rgba(139,148,158,.1); color: var(--muted); border: 1px solid var(--border); }
+  .signal-meta { font-size: 13px; color: var(--muted); }
+  .signal-meta span { color: var(--text); font-weight: 600; }
+  .reason { font-size: 12px; color: var(--muted); margin-top: 8px; font-style: italic; }
+
+  /* ── Bayesian + config ── */
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 560px) { .row-2 { grid-template-columns: 1fr; } }
+
+  .mini-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+  .mini-card h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
+  .stat-row .val { font-weight: 600; }
+
+  /* ── Trades table ── */
+  .trades-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .trades-panel h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); padding: 16px 20px 12px; border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 16px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .trade-buy  { color: var(--green); font-weight: 700; }
+  .trade-sell { color: var(--red);   font-weight: 700; }
+  .dry-tag { font-size: 10px; color: var(--muted); background: var(--border); padding: 1px 6px; border-radius: 4px; margin-left: 4px; }
+  .no-trades { padding: 24px 20px; color: var(--muted); font-size: 13px; }
+
+  /* ── Loading / error ── */
+  .loading { color: var(--muted); font-size: 14px; text-align: center; padding: 40px; }
+  .error-banner { background: rgba(248,81,73,.1); border: 1px solid rgba(248,81,73,.3); color: var(--red); border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-bottom: 16px; display: none; }
+</style>
+</head>
+<body>
+
+<!-- Auth screen -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <h2>🤖 Trading Bot</h2>
+    <p>Enter your CRON_SECRET to view the dashboard</p>
+    <input type="password" id="token-input" placeholder="Secret token" />
+    <button onclick="login()">View Dashboard</button>
+  </div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+  <header>
+    <div class="header-left">
+      <h1>🤖 FGI Trading Bot</h1>
+      <p id="last-updated">Loading…</p>
+    </div>
+    <div class="header-right">
+      <span id="mode-badge" class="badge badge-dry">DRY RUN</span>
+      <button class="refresh-btn" onclick="load()">↻ Refresh</button>
+      <button class="refresh-btn" onclick="logout()" style="color:var(--muted)">Sign out</button>
+    </div>
+  </header>
+
+  <div id="error-banner" class="error-banner"></div>
+
+  <!-- Portfolio cards -->
+  <div id="portfolio-cards" class="cards">
+    <div class="loading">Loading…</div>
+  </div>
+
+  <!-- FGI panel -->
+  <div class="fgi-panel">
+    <div class="fgi-header">
+      <h2>Fear &amp; Greed Index</h2>
+    </div>
+    <div id="fgi-body" class="loading">Loading…</div>
+  </div>
+
+  <!-- Bayesian + Config -->
+  <div class="row-2">
+    <div class="mini-card">
+      <h3>Bayesian Confidence</h3>
+      <div id="bayesian-body"><span style="color:var(--muted);font-size:13px">No data yet — improves with live trades</span></div>
+    </div>
+    <div class="mini-card">
+      <h3>Strategy Config</h3>
+      <div id="config-body" class="loading">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Trades -->
+  <div class="trades-panel">
+    <h3>Recent Trades</h3>
+    <div id="trades-body"><div class="no-trades">No trades recorded yet</div></div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+
+function getToken() { return localStorage.getItem('bot_token') || ''; }
+function setToken(t) { localStorage.setItem('bot_token', t); }
+function clearToken() { localStorage.removeItem('bot_token'); }
+
+function login() {
+  const t = document.getElementById('token-input').value.trim();
+  if (!t) return;
+  setToken(t);
+  showDashboard();
+  load();
+}
+
+function logout() {
+  clearToken();
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+}
+
+function showDashboard() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+}
+
+async function load() {
+  document.getElementById('last-updated').textContent = 'Refreshing…';
+  try {
+    const res = await fetch(`${BASE}/api/status`, {
+      headers: { 'Authorization': `Bearer ${getToken()}` }
+    });
+    if (res.status === 401) { logout(); return; }
+    const d = await res.json();
+    render(d);
+    document.getElementById('error-banner').style.display = 'none';
+  } catch(e) {
+    document.getElementById('error-banner').textContent = `Failed to load: ${e.message}`;
+    document.getElementById('error-banner').style.display = 'block';
+    document.getElementById('last-updated').textContent = 'Failed to refresh';
+  }
+}
+
+function fmt(n, dec=2) { return n == null ? '—' : Number(n).toFixed(dec); }
+function fmtUSD(n) { return n == null ? '—' : '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function fmtPct(n) { return n == null ? '—' : (n>=0?'+':'')+fmt(n)+'%'; }
+function timeAgo(ts) {
+  const s = Math.floor(Date.now()/1000) - ts;
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+function fmtDate(ts) {
+  return new Date(ts*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+
+function fgiColor(v) {
+  if (v <= 24) return '#ef4444';
+  if (v <= 44) return '#f97316';
+  if (v <= 55) return '#eab308';
+  if (v <= 74) return '#84cc16';
+  return '#22c55e';
+}
+
+function render(d) {
+  // Mode badge
+  const badge = document.getElementById('mode-badge');
+  if (d.dry_run) { badge.textContent = 'DRY RUN'; badge.className = 'badge badge-dry'; }
+  else           { badge.textContent = '● LIVE';   badge.className = 'badge badge-live'; }
+
+  document.getElementById('last-updated').textContent =
+    `${d.symbol} · Updated ${timeAgo(d.timestamp)}`;
+
+  // Portfolio
+  const p = d.portfolio || {};
+  if (p.error) {
+    document.getElementById('portfolio-cards').innerHTML =
+      `<div class="card"><div class="card-label">Portfolio</div><div style="color:var(--red);font-size:13px">${p.error}</div></div>`;
+  } else {
+    document.getElementById('portfolio-cards').innerHTML = `
+      <div class="card">
+        <div class="card-label">Total Value</div>
+        <div class="card-value">${fmtUSD(p.total)}</div>
+        <div class="card-sub">${d.symbol}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Cash</div>
+        <div class="card-value">${fmtUSD(p.cash)}</div>
+        <div class="card-sub">available</div>
+      </div>
+      <div class="card">
+        <div class="card-label">BTC Holdings</div>
+        <div class="card-value" style="font-size:18px">${fmt(p.btc_qty,6)} BTC</div>
+        <div class="card-sub">${fmtUSD(p.btc_value)}</div>
+      </div>
+      <div class="card">
+        <div class="card-label">BTC Price</div>
+        <div class="card-value" style="font-size:20px">${fmtUSD(p.btc_price)}</div>
+        <div class="card-sub">mid-market</div>
+      </div>`;
+  }
+
+  // FGI
+  const f = d.fgi || {};
+  if (f.error) {
+    document.getElementById('fgi-body').innerHTML = `<div style="color:var(--red);font-size:13px">${f.error}</div>`;
+  } else {
+    const col = fgiColor(f.value);
+    const pct = f.value;
+    const sigClass = `signal-${f.signal}`;
+    const confPct = (f.confidence * 100).toFixed(0);
+    const threshold = ((d.config?.min_confidence || 0.53) * 100).toFixed(0);
+    const fires = f.confidence >= (d.config?.min_confidence || 0.53) && f.signal !== 'HOLD';
+    document.getElementById('fgi-body').innerHTML = `
+      <div class="fgi-value-row">
+        <div class="fgi-number" style="color:${col}">${f.value}</div>
+        <div class="fgi-label" style="color:${col}">${f.label}</div>
+      </div>
+      <div class="fgi-bar-wrap">
+        <div class="fgi-marker" style="left:${pct}%"></div>
+      </div>
+      <div class="fgi-axis"><span>Extreme Fear</span><span>Fear</span><span>Neutral</span><span>Greed</span><span>Extreme Greed</span></div>
+      <div class="signal-row">
+        <span class="signal-badge ${sigClass}">${f.signal}</span>
+        <span class="signal-meta">Z-score <span>${fmt(f.z_score,2)}σ</span></span>
+        <span class="signal-meta">Confidence <span>${confPct}%</span> (need ${threshold}% to trade)</span>
+        ${fires ? `<span class="badge badge-live" style="font-size:11px">WOULD FIRE</span>` : ''}
+      </div>
+      <div class="reason">${f.reason || ''}</div>`;
+  }
+
+  // Bayesian
+  const b = d.bayesian;
+  if (b && !b.error) {
+    document.getElementById('bayesian-body').innerHTML = `
+      <div class="stat-row"><span>BUY success rate</span><span class="val up">${(b.buy_confidence*100).toFixed(1)}%</span></div>
+      <div class="stat-row"><span>SELL success rate</span><span class="val up">${(b.sell_confidence*100).toFixed(1)}%</span></div>`;
+  }
+
+  // Config
+  const c = d.config || {};
+  document.getElementById('config-body').innerHTML = `
+    <div class="stat-row"><span>Buy z threshold</span><span class="val">${c.buy_z}</span></div>
+    <div class="stat-row"><span>Sell z threshold</span><span class="val">+${c.sell_z}</span></div>
+    <div class="stat-row"><span>Buy size</span><span class="val">${(c.min_buy_pct*100).toFixed(0)}% → ${(c.max_buy_pct*100).toFixed(0)}%</span></div>
+    <div class="stat-row"><span>Sell size</span><span class="val">${(c.sell_pct*100).toFixed(0)}% of BTC</span></div>`;
+
+  // Trades
+  const trades = d.trades || [];
+  if (!trades.length) {
+    document.getElementById('trades-body').innerHTML = '<div class="no-trades">No trades recorded yet</div>';
+  } else {
+    const rows = trades.slice(0,20).map(t => `
+      <tr>
+        <td>${fmtDate(t.timestamp)}</td>
+        <td><span class="trade-${t.action.toLowerCase()}">${t.action}</span>${t.dry_run?'<span class="dry-tag">dry</span>':''}</td>
+        <td>${fmt(t.quantity,6)} BTC</td>
+        <td>${fmtUSD(t.price)}</td>
+        <td>${fmtUSD(t.usd_amount)}</td>
+        <td>FGI ${t.fgi_value} (${fmt(t.z_score,2)}σ)</td>
+      </tr>`).join('');
+    document.getElementById('trades-body').innerHTML = `
+      <table>
+        <thead><tr><th>Time</th><th>Action</th><th>Quantity</th><th>Price</th><th>USD</th><th>Signal</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+}
+
+// Auto-refresh every 60s
+setInterval(load, 60_000);
+
+// On load: check for saved token
+if (getToken()) { showDashboard(); load(); }
+
+// Allow Enter key in auth form
+document.getElementById('token-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+</script>
+</body>
+</html>

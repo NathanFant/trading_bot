@@ -1,8 +1,12 @@
 {
   "builds": [
-    { "src": "api/cycle.py", "use": "@vercel/python" }
+    { "src": "api/cycle.py",  "use": "@vercel/python" },
+    { "src": "api/status.py", "use": "@vercel/python" },
+    { "src": "index.html",    "use": "@vercel/static" }
   ],
   "routes": [
-    { "src": "/api/cycle", "dest": "/api/cycle.py" }
+    { "src": "/api/cycle",  "dest": "/api/cycle.py"  },
+    { "src": "/api/status", "dest": "/api/status.py" },
+    { "src": "/",           "dest": "/index.html"    }
   ]
 }
