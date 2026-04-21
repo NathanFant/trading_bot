@@ -22,18 +22,8 @@
 
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; min-height: 100vh; }
 
-  /* ── Auth screen ── */
-  #auth-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 360px; text-align: center; }
-  .auth-card h2 { margin-bottom: 8px; }
-  .auth-card p { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
-  .auth-card input { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; margin-bottom: 12px; outline: none; }
-  .auth-card input:focus { border-color: var(--blue); }
-  .auth-card button { width: 100%; padding: 10px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
-  .auth-card button:hover { opacity: 0.85; }
-
   /* ── Dashboard ── */
-  #dashboard { display: none; max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  #dashboard { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
 
   header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
   .header-left h1 { font-size: 20px; font-weight: 700; }
@@ -106,17 +96,6 @@
 </head>
 <body>
 
-<!-- Auth screen -->
-<div id="auth-screen">
-  <div class="auth-card">
-    <h2>🤖 Trading Bot</h2>
-    <p>Enter your CRON_SECRET to view the dashboard</p>
-    <input type="password" id="token-input" placeholder="Secret token" />
-    <button onclick="login()">View Dashboard</button>
-  </div>
-</div>
-
-<!-- Dashboard -->
 <div id="dashboard">
   <header>
     <div class="header-left">
@@ -126,7 +105,6 @@
     <div class="header-right">
       <span id="mode-badge" class="badge badge-dry">DRY RUN</span>
       <button class="refresh-btn" onclick="load()">↻ Refresh</button>
-      <button class="refresh-btn" onclick="logout()" style="color:var(--muted)">Sign out</button>
     </div>
   </header>
 
@@ -167,36 +145,10 @@
 <script>
 const BASE = '';
 
-function getToken() { return localStorage.getItem('bot_token') || ''; }
-function setToken(t) { localStorage.setItem('bot_token', t); }
-function clearToken() { localStorage.removeItem('bot_token'); }
-
-function login() {
-  const t = document.getElementById('token-input').value.trim();
-  if (!t) return;
-  setToken(t);
-  showDashboard();
-  load();
-}
-
-function logout() {
-  clearToken();
-  document.getElementById('auth-screen').style.display = 'flex';
-  document.getElementById('dashboard').style.display = 'none';
-}
-
-function showDashboard() {
-  document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('dashboard').style.display = 'block';
-}
-
 async function load() {
   document.getElementById('last-updated').textContent = 'Refreshing…';
   try {
-    const res = await fetch(`${BASE}/api/status`, {
-      headers: { 'Authorization': `Bearer ${getToken()}` }
-    });
-    if (res.status === 401) { logout(); return; }
+    const res = await fetch(`${BASE}/api/status`);
     const d = await res.json();
     render(d);
     document.getElementById('error-banner').style.display = 'none';
@@ -255,13 +207,13 @@ function render(d) {
         <div class="card-sub">available</div>
       </div>
       <div class="card">
-        <div class="card-label">BTC Holdings</div>
-        <div class="card-value" style="font-size:18px">${fmt(p.btc_qty,6)} BTC</div>
-        <div class="card-sub">${fmtUSD(p.btc_value)}</div>
+        <div class="card-label">SOL Holdings</div>
+        <div class="card-value" style="font-size:18px">${fmt(p.sol_qty,6)} SOL</div>
+        <div class="card-sub">${fmtUSD(p.sol_value)}</div>
       </div>
       <div class="card">
-        <div class="card-label">BTC Price</div>
-        <div class="card-value" style="font-size:20px">${fmtUSD(p.btc_price)}</div>
+        <div class="card-label">SOL Price</div>
+        <div class="card-value" style="font-size:20px">${fmtUSD(p.sol_price)}</div>
         <div class="card-sub">mid-market</div>
       </div>`;
   }
@@ -309,7 +261,7 @@ function render(d) {
     <div class="stat-row"><span>Buy z threshold</span><span class="val">${c.buy_z}</span></div>
     <div class="stat-row"><span>Sell z threshold</span><span class="val">+${c.sell_z}</span></div>
     <div class="stat-row"><span>Buy size</span><span class="val">${(c.min_buy_pct*100).toFixed(0)}% → ${(c.max_buy_pct*100).toFixed(0)}%</span></div>
-    <div class="stat-row"><span>Sell size</span><span class="val">${(c.sell_pct*100).toFixed(0)}% of BTC</span></div>`;
+    <div class="stat-row"><span>Sell size</span><span class="val">${(c.sell_pct*100).toFixed(0)}% of SOL</span></div>`;
 
   // Trades
   const trades = d.trades || [];
@@ -320,7 +272,7 @@ function render(d) {
       <tr>
         <td>${fmtDate(t.timestamp)}</td>
         <td><span class="trade-${t.action.toLowerCase()}">${t.action}</span>${t.dry_run?'<span class="dry-tag">dry</span>':''}</td>
-        <td>${fmt(t.quantity,6)} BTC</td>
+        <td>${fmt(t.quantity,6)} SOL</td>
         <td>${fmtUSD(t.price)}</td>
         <td>${fmtUSD(t.usd_amount)}</td>
         <td>FGI ${t.fgi_value} (${fmt(t.z_score,2)}σ)</td>
@@ -336,13 +288,7 @@ function render(d) {
 // Auto-refresh every 60s
 setInterval(load, 60_000);
 
-// On load: check for saved token
-if (getToken()) { showDashboard(); load(); }
-
-// Allow Enter key in auth form
-document.getElementById('token-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') login();
-});
+load();
 </script>
 </body>
 </html>
