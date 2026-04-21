@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python public_key.py)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(.venv/bin/python run_backtest.py)",
+      "Bash(.venv/bin/python run_periods.py)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//tmp/**)",
+      "Bash(.venv/bin/python -c \"import robinhood; print\\('import OK'\\)\")",
+      "Bash(.venv/bin/python -)",
+      "Bash(.venv/bin/python -c \"import backtest_enhanced, run_compare; print\\('imports OK'\\)\")",
+      "Bash(.venv/bin/python run_compare.py)",
+      "Bash(.venv/bin/python run_asymmetric.py)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(.venv/bin/pip list *)",
+      "Bash(kill 796357)",
+      "Bash(grep -E \"months|BTC Buy|VOO Buy|→ return|FOUR-WAY|Dollar|Beats|Period|---|\\\\$[0-9]|YES|NO|Sym|Asym|Optimal|buy_z|Type\" /tmp/asymmetric_out.txt)",
+      "Bash(docker build *)",
+      "Bash(docker run *)",
+      "Bash(.venv/bin/python -c \"from backtest import run_scaled_monte_carlo, BacktestParams; p = BacktestParams\\(scale_buy_with_z=True, min_buy_pct=0.1, max_buy_pct=0.8\\); print\\('backtest OK', p.scale_buy_with_z\\)\")",
+      "Bash(.venv/bin/python -c \"import run_scaled; print\\('run_scaled OK'\\)\")",
+      "Bash(.venv/bin/python run_scaled.py)",
+      "Bash(.venv/bin/python -c \"import kv; print\\('kv OK, available:', kv.available\\(\\)\\)\")",
+      "Bash(.venv/bin/python -c \"import sys; sys.path.insert\\(0, '.'\\); import api.cycle; print\\('api/cycle OK'\\)\")",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/home/Nathan/projects/crypto_bot/.price_cache"
+    ]
+  }
+}

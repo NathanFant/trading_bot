@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env.local
+.env
+bot.db
+bot.log
+.price_cache/
+*.jsonl
+.git/

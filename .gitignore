@@ -1,0 +1,27 @@
+# Secrets — never commit
+.env.local
+.env
+
+# Runtime data — lives on Fly.io volume, not in git
+bot.db
+bot.db-shm
+bot.db-wal
+bot.log
+.price_cache/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Vercel
+.vercel/
