@@ -23,12 +23,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Signal:
     action: str        # "BUY" | "SELL" | "HOLD"
-    confidence: float  # 0.0–1.0
+    confidence: float  # 0.0–1.0 (blended: 60% z-stat + 40% Bayesian)
     z_score: float
     fgi_value: int
     fgi_mean: float
     fgi_std: float
     reason: str
+    stat_conf: float = 0.0  # raw z-score statistical confidence before Bayesian blend
 
 
 class BayesianUpdater:
@@ -148,7 +149,7 @@ def compute_signal(
             f"({mean:.1f}±{std:.1f}) — extreme fear, contrarian buy"
         )
         logger.info("BUY signal  z=%.2f  conf=%.2f  reason=%s", z, confidence, reason)
-        return Signal("BUY", confidence, z, current.value, mean, std, reason)
+        return Signal("BUY", confidence, z, current.value, mean, std, reason, stat_conf=stat_conf)
 
     if z >= sell_z_threshold:
         stat_conf = _zscore_to_confidence(z)
@@ -159,7 +160,7 @@ def compute_signal(
             f"({mean:.1f}±{std:.1f}) — extreme greed, contrarian sell"
         )
         logger.info("SELL signal z=%.2f  conf=%.2f  reason=%s", z, confidence, reason)
-        return Signal("SELL", confidence, z, current.value, mean, std, reason)
+        return Signal("SELL", confidence, z, current.value, mean, std, reason, stat_conf=stat_conf)
 
     reason = (
         f"FGI {current.value} z={z:.2f} within normal range "

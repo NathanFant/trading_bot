@@ -49,12 +49,13 @@ BINANCE_SYMBOLS = {
     "ETH-USD": "ETHUSDT",
 }
 
-# Estimated Robinhood spread per coin (percentage, one-way).
-# BTC is most liquid; alts carry wider spreads.
+# All-in one-way cost per coin: Robinhood fee (0.85%) + bid-ask spread estimate.
+# BTC: 0.85% fee + ~0.05% spread; SOL/ETH: 0.85% + wider spread.
+ROBINHOOD_FEE_PCT = 0.0085
 SPREAD_PCT = {
-    "BTC-USD": 0.005,   # ~0.5%
-    "SOL-USD": 0.010,   # ~1.0%
-    "ETH-USD": 0.007,   # ~0.7%
+    "BTC-USD": 0.009,   # 0.85% fee + ~0.05% spread
+    "SOL-USD": 0.011,   # 0.85% fee + ~0.25% spread
+    "ETH-USD": 0.010,   # 0.85% fee + ~0.15% spread
 }
 
 
@@ -253,6 +254,10 @@ class BacktestParams:
     max_sell_pct: float = 0.90        # sell fraction at max_sell_z or beyond
     max_sell_z: float = 4.0           # z-score magnitude at which max_sell_pct is reached
 
+    # Confidence gating options
+    use_confidence_gate: bool = True  # if False, trade on any z-threshold crossing regardless of confidence
+    invert_bayesian: bool = False     # if True, use (1 - bayesian_conf) — tests whether Bayesian is anti-correlated
+
 
 @dataclass
 class BacktestResult:
@@ -296,7 +301,14 @@ def run_backtest(bars: list[DailyBar], params: BacktestParams) -> BacktestResult
             sell_z_threshold=params.sell_z_threshold,
         )
 
-        if signal.confidence < params.min_confidence:
+        # Optionally recompute confidence with inverted Bayesian component
+        if params.invert_bayesian and signal.action != "HOLD" and signal.stat_conf > 0:
+            bayes_c = bayesian.confidence(signal.action)
+            effective_conf = round(0.6 * signal.stat_conf + 0.4 * (1.0 - bayes_c), 4)
+        else:
+            effective_conf = signal.confidence
+
+        if params.use_confidence_gate and effective_conf < params.min_confidence:
             continue
 
         # Apply spread cost (round-trip is 2× spread, applied at execution)
@@ -582,6 +594,229 @@ def run_scaled_sell_monte_carlo(
 
     results.sort(key=lambda r: r.sharpe_ratio, reverse=True)
     return results
+
+
+# ── RSI strategy ─────────────────────────────────────────────────────────────
+
+def _compute_rsi(prices: list[float], period: int = 14) -> list[float]:
+    """Wilder smoothed RSI. Returns list of same length; first `period` values are 0.0."""
+    rsi: list[float] = [0.0] * len(prices)
+    if len(prices) <= period:
+        return rsi
+    gains, losses = [], []
+    for i in range(1, period + 1):
+        d = prices[i] - prices[i - 1]
+        gains.append(max(d, 0.0))
+        losses.append(max(-d, 0.0))
+    avg_g = sum(gains) / period
+    avg_l = sum(losses) / period
+    rsi[period] = 100.0 if avg_l == 0 else 100.0 - 100.0 / (1.0 + avg_g / avg_l)
+    for i in range(period + 1, len(prices)):
+        d = prices[i] - prices[i - 1]
+        avg_g = (avg_g * (period - 1) + max(d, 0.0)) / period
+        avg_l = (avg_l * (period - 1) + max(-d, 0.0)) / period
+        rsi[i] = 100.0 if avg_l == 0 else 100.0 - 100.0 / (1.0 + avg_g / avg_l)
+    return rsi
+
+
+def run_rsi_backtest(
+    bars: list[DailyBar],
+    buy_threshold: float = 30.0,
+    sell_threshold: float = 70.0,
+    buy_pct: float = 0.50,
+    sell_pct: float = 0.65,
+    rsi_period: int = 14,
+    starting_cash: float = 10_000.0,
+    symbol: str = "SOL-USD",
+) -> BacktestResult:
+    """RSI contrarian strategy: buy oversold (< buy_threshold), sell overbought (> sell_threshold)."""
+    spread = SPREAD_PCT.get(symbol, 0.011)
+    cash = starting_cash
+    held = 0.0
+    trades: list[tuple[str, float, float]] = []
+    portfolio_values: list[float] = []
+    prices = [b.price for b in bars]
+    rsi_vals = _compute_rsi(prices, rsi_period)
+
+    prev_rsi = 0.0
+    for i, bar in enumerate(bars):
+        portfolio_values.append(cash + held * bar.price)
+        r = rsi_vals[i]
+        if i < rsi_period or r == 0.0:
+            prev_rsi = r
+            continue
+        eff_buy = bar.price * (1 + spread)
+        eff_sell = bar.price * (1 - spread)
+        # Trigger on cross (prev above/below threshold, now below/above)
+        if prev_rsi >= buy_threshold and r < buy_threshold and cash > 1.0:
+            usd = cash * buy_pct
+            qty = usd / eff_buy
+            cash -= usd
+            held += qty
+            trades.append(("BUY", eff_buy, qty))
+        elif prev_rsi <= sell_threshold and r > sell_threshold and held > 0:
+            qty = held * sell_pct
+            cash += qty * eff_sell
+            held -= qty
+            trades.append(("SELL", eff_sell, qty))
+        prev_rsi = r
+
+    final_value = cash + held * bars[-1].price if bars else starting_cash
+    total_return = (final_value - starting_cash) / starting_cash * 100
+
+    daily_rets = []
+    for j in range(1, len(portfolio_values)):
+        prev = portfolio_values[j - 1]
+        if prev > 0:
+            daily_rets.append((portfolio_values[j] - prev) / prev)
+    sharpe = 0.0
+    if len(daily_rets) > 1:
+        mean_r = float(np.mean(daily_rets))
+        std_r = float(np.std(daily_rets, ddof=1))
+        if std_r > 0:
+            sharpe = mean_r / std_r * float(np.sqrt(365))
+
+    peak, max_dd = starting_cash, 0.0
+    for v in portfolio_values:
+        if v > peak:
+            peak = v
+        dd = (peak - v) / peak * 100
+        if dd > max_dd:
+            max_dd = dd
+
+    wins, buy_stack = 0, []
+    for action, price, _ in trades:
+        if action == "BUY":
+            buy_stack.append(price)
+        elif action == "SELL" and buy_stack:
+            wins += int(price > buy_stack.pop())
+    num_sells = sum(1 for t in trades if t[0] == "SELL")
+    win_rate = wins / num_sells if num_sells > 0 else 0.0
+
+    bh_qty = starting_cash / (bars[0].price * (1 + spread))
+    bh_value = bh_qty * bars[-1].price * (1 - spread)
+    bh_return = (bh_value - starting_cash) / starting_cash * 100
+
+    params = BacktestParams(
+        starting_cash=starting_cash, symbol=symbol, spread_pct=spread,
+        sell_pct=sell_pct, position_size_pct=buy_pct,
+    )
+    return BacktestResult(
+        params=params,
+        total_return_pct=round(total_return, 2),
+        sharpe_ratio=round(sharpe, 3),
+        max_drawdown_pct=round(max_dd, 2),
+        num_trades=len(trades),
+        win_rate=round(win_rate, 3),
+        final_portfolio_usd=round(final_value, 2),
+        buy_hold_return_pct=round(bh_return, 2),
+        daily_returns=daily_rets,
+    )
+
+
+# ── SMA crossover strategy ────────────────────────────────────────────────────
+
+def run_sma_backtest(
+    bars: list[DailyBar],
+    fast_period: int = 50,
+    slow_period: int = 100,
+    buy_pct: float = 0.95,
+    sell_pct: float = 0.95,
+    starting_cash: float = 10_000.0,
+    symbol: str = "SOL-USD",
+) -> BacktestResult:
+    """Golden/death cross: buy when fast SMA crosses above slow SMA, sell on cross below."""
+    spread = SPREAD_PCT.get(symbol, 0.011)
+    cash = starting_cash
+    held = 0.0
+    trades: list[tuple[str, float, float]] = []
+    portfolio_values: list[float] = []
+    prices = [b.price for b in bars]
+
+    def sma(end: int, period: int) -> float:
+        start = end - period
+        if start < 0:
+            return 0.0
+        return sum(prices[start:end]) / period
+
+    in_market = False
+    for i, bar in enumerate(bars):
+        portfolio_values.append(cash + held * bar.price)
+        if i < slow_period:
+            continue
+        fast_prev = sma(i, fast_period)
+        slow_prev = sma(i, slow_period)
+        fast_now = sma(i + 1, fast_period)
+        slow_now = sma(i + 1, slow_period)
+        eff_buy = bar.price * (1 + spread)
+        eff_sell = bar.price * (1 - spread)
+        # Golden cross: fast crosses above slow
+        if fast_prev <= slow_prev and fast_now > slow_now and not in_market and cash > 1.0:
+            usd = cash * buy_pct
+            qty = usd / eff_buy
+            cash -= usd
+            held += qty
+            trades.append(("BUY", eff_buy, qty))
+            in_market = True
+        # Death cross: fast crosses below slow
+        elif fast_prev >= slow_prev and fast_now < slow_now and in_market and held > 0:
+            qty = held * sell_pct
+            cash += qty * eff_sell
+            held -= qty
+            trades.append(("SELL", eff_sell, qty))
+            in_market = False
+
+    final_value = cash + held * bars[-1].price if bars else starting_cash
+    total_return = (final_value - starting_cash) / starting_cash * 100
+
+    daily_rets = []
+    for j in range(1, len(portfolio_values)):
+        prev = portfolio_values[j - 1]
+        if prev > 0:
+            daily_rets.append((portfolio_values[j] - prev) / prev)
+    sharpe = 0.0
+    if len(daily_rets) > 1:
+        mean_r = float(np.mean(daily_rets))
+        std_r = float(np.std(daily_rets, ddof=1))
+        if std_r > 0:
+            sharpe = mean_r / std_r * float(np.sqrt(365))
+
+    peak, max_dd = starting_cash, 0.0
+    for v in portfolio_values:
+        if v > peak:
+            peak = v
+        dd = (peak - v) / peak * 100
+        if dd > max_dd:
+            max_dd = dd
+
+    wins, buy_stack = 0, []
+    for action, price, _ in trades:
+        if action == "BUY":
+            buy_stack.append(price)
+        elif action == "SELL" and buy_stack:
+            wins += int(price > buy_stack.pop())
+    num_sells = sum(1 for t in trades if t[0] == "SELL")
+    win_rate = wins / num_sells if num_sells > 0 else 0.0
+
+    bh_qty = starting_cash / (bars[0].price * (1 + spread))
+    bh_value = bh_qty * bars[-1].price * (1 - spread)
+    bh_return = (bh_value - starting_cash) / starting_cash * 100
+
+    params = BacktestParams(
+        starting_cash=starting_cash, symbol=symbol, spread_pct=spread,
+        sell_pct=sell_pct, position_size_pct=buy_pct,
+    )
+    return BacktestResult(
+        params=params,
+        total_return_pct=round(total_return, 2),
+        sharpe_ratio=round(sharpe, 3),
+        max_drawdown_pct=round(max_dd, 2),
+        num_trades=len(trades),
+        win_rate=round(win_rate, 3),
+        final_portfolio_usd=round(final_value, 2),
+        buy_hold_return_pct=round(bh_return, 2),
+        daily_returns=daily_rets,
+    )
 
 
 def print_monte_carlo_summary(results: list[BacktestResult], symbol: str = "") -> None:
