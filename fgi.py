@@ -2,8 +2,8 @@
 Fear & Greed Index fetcher with multi-source fallback.
 
 Source priority:
-  1. Alternative.me  (free, no key)
-  2. CoinMarketCap   (free tier, key required)
+  1. CoinMarketCap   (free tier, key required — more frequently updated)
+  2. Alternative.me  (free, no key — daily, used as fallback)
   3. Calculated      (derived from BTC price volatility via CoinGecko)
   4. Last cached     (database fallback — never returns stale data without warning)
 """
@@ -109,11 +109,10 @@ def fetch_current(
     cached_fallback: FGIReading | None = None,
 ) -> FGIReading:
     """Return the latest FGI reading, trying sources in priority order."""
-    sources: list[tuple[str, object]] = [
-        ("alternative.me", lambda: _from_alternative_me(1)[0]),
-    ]
+    sources: list[tuple[str, object]] = []
     if coinmarketcap_api_key:
         sources.append(("coinmarketcap", lambda: _from_coinmarketcap(coinmarketcap_api_key)[0]))
+    sources.append(("alternative.me", lambda: _from_alternative_me(1)[0]))
     sources.append(("coingecko-derived", lambda: _from_coingecko_derived()[0]))
 
     for name, fn in sources:
@@ -134,9 +133,7 @@ def fetch_current(
 
 def fetch_history(days: int = 180, coinmarketcap_api_key: str = "") -> list[FGIReading]:
     """Return up to `days` daily FGI readings, oldest-first."""
-    sources: list[tuple[str, object]] = [
-        ("alternative.me", lambda: _from_alternative_me(days)),
-    ]
+    sources: list[tuple[str, object]] = []
     if coinmarketcap_api_key:
         # CMC historical endpoint
         def _cmc_history() -> list[FGIReading]:
@@ -152,6 +149,7 @@ def fetch_history(days: int = 180, coinmarketcap_api_key: str = "") -> list[FGIR
                 out.append(FGIReading(value=v, label=_label(v), timestamp=int(d["timestamp"]), source="coinmarketcap"))
             return out
         sources.append(("coinmarketcap", _cmc_history))
+    sources.append(("alternative.me", lambda: _from_alternative_me(days)))
 
     for name, fn in sources:
         try:
