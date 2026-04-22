@@ -12,7 +12,7 @@ import time
 
 import requests
 
-from signals import Signal
+from .signals import Signal
 
 logger = logging.getLogger(__name__)
 

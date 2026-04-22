@@ -18,11 +18,11 @@ import signal
 import time
 from datetime import datetime, timezone
 
-import database as db
-import notifications as notif
-from fgi import FGIReading, fetch_current, fetch_history
-from robinhood import RobinhoodClient
-from signals import BayesianUpdater, compute_signal
+from storage import database as db
+from . import notifications as notif
+from .fgi import FGIReading, fetch_current, fetch_history
+from .robinhood import RobinhoodClient
+from .signals import BayesianUpdater, compute_signal
 
 logger = logging.getLogger(__name__)
 

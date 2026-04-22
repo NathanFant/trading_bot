@@ -45,15 +45,15 @@ def _setup_logging() -> None:
 
 
 def cmd_trade() -> None:
-    import database as db
-    from trader import Trader
+    from storage import database as db
+    from core.trader import Trader
 
     db.init_db()
     Trader().run()
 
 
 def cmd_backtest(n_simulations: int) -> None:
-    from backtest import load_aligned_data, print_monte_carlo_summary, run_monte_carlo
+    from core.backtest import load_aligned_data, print_monte_carlo_summary, run_monte_carlo
 
     print(f"Loading historical data…")
     bars = load_aligned_data(days=365)
@@ -67,8 +67,8 @@ def cmd_backtest(n_simulations: int) -> None:
 
 
 def cmd_status() -> None:
-    import database as db
-    from robinhood import RobinhoodClient
+    from storage import database as db
+    from core.robinhood import RobinhoodClient
 
     db.init_db()
 
@@ -108,7 +108,7 @@ def cmd_status() -> None:
     print("\n── Bayesian State ────────────────────────────────")
     state = db.load_bayesian_state()
     if state:
-        from signals import BayesianUpdater
+        from core.signals import BayesianUpdater
         b = BayesianUpdater.from_state(state)
         print(f"  BUY  confidence : {b.confidence('BUY'):.1%}  (n={b.effective_sample_size('BUY'):.0f})")
         print(f"  SELL confidence : {b.confidence('SELL'):.1%}  (n={b.effective_sample_size('SELL'):.0f})")

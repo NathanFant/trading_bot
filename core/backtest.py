@@ -21,8 +21,8 @@ from pathlib import Path
 import numpy as np
 import requests
 
-from fgi import FGIReading, fetch_history
-from signals import BayesianUpdater, Signal, compute_signal
+from .fgi import FGIReading, fetch_history
+from .signals import BayesianUpdater, Signal, compute_signal
 
 logger = logging.getLogger(__name__)
 

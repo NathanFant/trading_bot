@@ -21,9 +21,9 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("requests").setLevel(logging.WARNING)
 
 def _fgi_and_signal() -> dict:  # type: ignore[type-arg]
-    from fgi import fetch_current, fetch_history, FGIReading
-    from signals import BayesianUpdater, compute_signal
-    from kv import kv_get
+    from core.fgi import fetch_current, fetch_history, FGIReading
+    from core.signals import BayesianUpdater, compute_signal
+    from storage.kv import kv_get
 
     history_days = int(os.environ.get("FGI_HISTORY_DAYS", "55"))
     cmc_key = os.environ.get("COINMARKETCAP_API_KEY", "")
@@ -51,7 +51,7 @@ def _fgi_and_signal() -> dict:  # type: ignore[type-arg]
 
 
 def _portfolio() -> dict:  # type: ignore[type-arg]
-    from robinhood import RobinhoodClient
+    from core.robinhood import RobinhoodClient
     symbol = os.environ.get("SYMBOL", "SOL-USD")
     asset = symbol.split("-")[0]
     client = RobinhoodClient(
@@ -74,8 +74,8 @@ def _portfolio() -> dict:  # type: ignore[type-arg]
 
 
 def _bayesian() -> dict | None:  # type: ignore[type-arg]
-    from kv import kv_get
-    from signals import BayesianUpdater
+    from storage.kv import kv_get
+    from core.signals import BayesianUpdater
     state = kv_get("bayesian_state")
     if not state:
         return None
@@ -119,19 +119,19 @@ def app(environ, start_response):  # type: ignore[type-arg]
         result["bayesian"] = None
 
     try:
-        from kv import kv_get_trades
+        from storage.kv import kv_get_trades
         result["trades"] = list(reversed(kv_get_trades()))  # newest first
     except Exception:
         result["trades"] = []
 
     try:
-        from kv import kv_get_last_cycle
+        from storage.kv import kv_get_last_cycle
         result["last_cycle"] = kv_get_last_cycle()
     except Exception:
         result["last_cycle"] = None
 
     try:
-        from kv import kv_get_perf_inception, kv_get_perf_snapshots
+        from storage.kv import kv_get_perf_inception, kv_get_perf_snapshots
         result["perf"] = {
             "inception": kv_get_perf_inception(),
             "snapshots": kv_get_perf_snapshots(),

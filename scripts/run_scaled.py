@@ -35,7 +35,7 @@ logging.getLogger("yfinance").setLevel(logging.WARNING)
 
 import yfinance as yf
 
-from backtest import (
+from core.backtest import (
     BacktestResult,
     SPREAD_PCT,
     load_aligned_data,

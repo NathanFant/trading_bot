@@ -36,9 +36,9 @@ def app(environ, start_response):
     import time
     import requests as _req
     try:
-        import database as db
-        from trader import Trader
-        from kv import kv_set_last_cycle, kv_set_perf_inception, kv_push_perf_snapshot
+        from storage import database as db
+        from core.trader import Trader
+        from storage.kv import kv_set_last_cycle, kv_set_perf_inception, kv_push_perf_snapshot
 
         db.init_db()
         trader = Trader()

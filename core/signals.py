@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from fgi import FGIReading
+from .fgi import FGIReading
 
 logger = logging.getLogger(__name__)
 

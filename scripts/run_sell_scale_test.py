@@ -28,7 +28,7 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("yfinance").setLevel(logging.WARNING)
 
-from backtest import (
+from core.backtest import (
     BacktestResult,
     SPREAD_PCT,
     load_aligned_data,
