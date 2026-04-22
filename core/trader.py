@@ -73,6 +73,15 @@ class Trader:
 
     def run_once(self) -> None:
         """Execute a single trading cycle — used by the Vercel serverless function."""
+        # Cooldown guard: skip if a non-HOLD trade already fired today.
+        # Uncomment when ready to enforce once-per-day trading at sub-daily cron frequency.
+        # from storage.kv import kv_get_last_cycle
+        # last = kv_get_last_cycle()
+        # if last and time.time() - last["timestamp"] < 86400 and last.get("last_signal") != "HOLD":
+        #     self.last_skip_reason = "already traded today"
+        #     logger.info("Skipping cycle — already traded today")
+        #     return
+
         logger.info(
             "Single cycle — symbol=%s dry_run=%s scale_z=%s min_buy=%.0f%% max_buy=%.0f%% sell=%.0f%%",
             self.symbol, self.dry_run, self.scale_buy_with_z,
@@ -168,7 +177,7 @@ class Trader:
     # ── Execution ─────────────────────────────────────────────────────────────
 
     def _execute(self, sig: "Signal", fgi: FGIReading) -> None:  # noqa: F821
-        from signals import Signal  # local import avoids circular at module level
+        from .signals import Signal  # local import avoids circular at module level
         asset = self.symbol.split("-")[0]
 
         if sig.action == "BUY":
