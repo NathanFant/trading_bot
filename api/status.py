@@ -26,8 +26,9 @@ def _fgi_and_signal() -> dict:  # type: ignore[type-arg]
     from kv import kv_get
 
     history_days = int(os.environ.get("FGI_HISTORY_DAYS", "55"))
-    history = fetch_history(history_days)
-    current = fetch_current(coinmarketcap_api_key=os.environ.get("COINMARKETCAP_API_KEY", ""))
+    cmc_key = os.environ.get("COINMARKETCAP_API_KEY", "")
+    history = fetch_history(history_days, coinmarketcap_api_key=cmc_key)
+    current = fetch_current(coinmarketcap_api_key=cmc_key)
 
     state = kv_get("bayesian_state")
     bayesian = BayesianUpdater.from_state(state) if state else BayesianUpdater()
