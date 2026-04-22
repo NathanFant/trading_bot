@@ -15,8 +15,11 @@ __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
-dist/
 build/
+
+# Node / frontend
+node_modules/
+dist/
 
 # Editor
 .vscode/
