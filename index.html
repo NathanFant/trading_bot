@@ -186,8 +186,12 @@ function render(d) {
   if (d.dry_run) { badge.textContent = 'DRY RUN'; badge.className = 'badge badge-dry'; }
   else           { badge.textContent = '● LIVE';   badge.className = 'badge badge-live'; }
 
+  const lc = d.last_cycle;
+  const cycleInfo = lc
+    ? `Last cycle ${timeAgo(lc.timestamp)} · signal=${lc.last_signal}${lc.last_skip_reason ? ' · skipped: ' + lc.last_skip_reason : ''}`
+    : 'No cycle recorded yet';
   document.getElementById('last-updated').textContent =
-    `${d.symbol} · Updated ${timeAgo(d.timestamp)}`;
+    `${d.symbol} · Dashboard ${timeAgo(d.timestamp)} · ${cycleInfo}`;
 
   // Portfolio
   const p = d.portfolio || {};

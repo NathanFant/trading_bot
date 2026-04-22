@@ -33,14 +33,29 @@ def app(environ, start_response):
         start_response("401 Unauthorized", [("Content-Type", "application/json")])
         return [b'{"error":"unauthorized"}']
 
+    import time
     try:
         import database as db
         from trader import Trader
+        from kv import kv_set_last_cycle
 
         db.init_db()
-        Trader().run_once()
+        trader = Trader()
+        trader.run_once()
+
+        kv_set_last_cycle({
+            "timestamp": int(time.time()),
+            "last_signal": trader.last_signal,
+            "last_skip_reason": trader.last_skip_reason,
+        })
+
+        body = json.dumps({
+            "status": "ok",
+            "signal": trader.last_signal,
+            "skip_reason": trader.last_skip_reason,
+        }).encode()
         start_response("200 OK", [("Content-Type", "application/json")])
-        return [b'{"status":"ok"}']
+        return [body]
     except Exception as exc:
         logging.exception("Cycle failed: %s", exc)
         body = json.dumps({"error": str(exc)}).encode()

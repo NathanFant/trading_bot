@@ -55,6 +55,16 @@ def kv_set(key: str, value: object) -> None:
         logger.warning("KV set %s failed: %s", key, exc)
 
 
+def kv_set_last_cycle(info: dict) -> None:  # type: ignore[type-arg]
+    """Persist last cycle result so the dashboard can show when the bot last ran."""
+    kv_set("last_cycle", info)
+
+
+def kv_get_last_cycle() -> dict | None:  # type: ignore[type-arg]
+    result = kv_get("last_cycle")
+    return result if isinstance(result, dict) else None
+
+
 def kv_push_trade(trade: dict) -> None:  # type: ignore[type-arg]
     """Append trade to recent_trades list, keeping last 50."""
     if not available():

@@ -52,6 +52,8 @@ class Trader:
         self._running = False
         self._last_history_fetch: float = 0.0
         self._fgi_history: list[FGIReading] = []
+        self.last_signal: str = "HOLD"
+        self.last_skip_reason: str = ""
 
         # Restore or initialise Bayesian state
         saved_state = db.load_bayesian_state()
@@ -138,6 +140,7 @@ class Trader:
             sell_z_threshold=self.sell_z,
         )
 
+        self.last_signal = signal_obj.action
         logger.info(
             "Signal: %s  conf=%.2f  z=%.2f  FGI=%d (%s)",
             signal_obj.action, signal_obj.confidence,
@@ -145,7 +148,14 @@ class Trader:
         )
 
         # 4. Execute if above threshold
-        if signal_obj.action != "HOLD" and signal_obj.confidence >= self.min_confidence:
+        if signal_obj.action == "HOLD":
+            self.last_skip_reason = f"z={signal_obj.z_score:.2f} not outside thresholds ({self.buy_z}/{self.sell_z:+})"
+            logger.info("No trade — %s", self.last_skip_reason)
+        elif signal_obj.confidence < self.min_confidence:
+            self.last_skip_reason = f"confidence {signal_obj.confidence:.1%} below minimum {self.min_confidence:.1%}"
+            logger.info("Signal %s skipped — %s", signal_obj.action, self.last_skip_reason)
+        else:
+            self.last_skip_reason = ""
             self._execute(signal_obj, current_fgi)
 
         # 5. Close open outcomes and update Bayesian

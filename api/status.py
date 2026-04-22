@@ -123,6 +123,12 @@ def app(environ, start_response):  # type: ignore[type-arg]
     except Exception:
         result["trades"] = []
 
+    try:
+        from kv import kv_get_last_cycle
+        result["last_cycle"] = kv_get_last_cycle()
+    except Exception:
+        result["last_cycle"] = None
+
     start_response("200 OK", [
         ("Content-Type", "application/json"),
         ("Access-Control-Allow-Origin", "*"),
