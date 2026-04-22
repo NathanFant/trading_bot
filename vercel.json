@@ -1,13 +1,7 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "builds": [
-    { "src": "api/cycle.py",  "use": "@vercel/python" },
-    { "src": "api/status.py", "use": "@vercel/python" }
-  ],
-  "routes": [
-    { "src": "/api/cycle",  "dest": "/api/cycle.py"  },
-    { "src": "/api/status", "dest": "/api/status.py" },
-    { "src": "/(.*)",       "dest": "/index.html"    }
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
