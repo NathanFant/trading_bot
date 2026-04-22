@@ -1,7 +1,11 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  "builds": [
+    { "src": "package.json",   "use": "@vercel/static-build", "config": { "distDir": "dist" } },
+    { "src": "api/cycle.py",   "use": "@vercel/python" },
+    { "src": "api/status.py",  "use": "@vercel/python" }
+  ],
+  "routes": [
+    { "src": "/api/cycle",  "dest": "/api/cycle.py"  },
+    { "src": "/api/status", "dest": "/api/status.py" }
   ]
 }
