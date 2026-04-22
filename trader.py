@@ -54,6 +54,7 @@ class Trader:
         self._fgi_history: list[FGIReading] = []
         self.last_signal: str = "HOLD"
         self.last_skip_reason: str = ""
+        self.last_portfolio_usd: float = 0.0
 
         # Restore or initialise Bayesian state
         saved_state = db.load_bayesian_state()
@@ -310,9 +311,10 @@ class Trader:
             asset = self.symbol.split("-")[0]
             acct = self._client.get_account()
             holding = self._client.get_holding(asset)
-            btc_qty = holding.total_quantity if holding else 0.0
+            sol_qty = holding.total_quantity if holding else 0.0
             price = self._client.get_mid_price(self.symbol)
-            db.insert_snapshot(btc_qty, acct.buying_power, price)
+            self.last_portfolio_usd = acct.buying_power + sol_qty * price
+            db.insert_snapshot(sol_qty, acct.buying_power, price)
         except Exception as exc:
             logger.warning("Portfolio snapshot failed: %s", exc)
 

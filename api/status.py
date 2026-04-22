@@ -130,6 +130,15 @@ def app(environ, start_response):  # type: ignore[type-arg]
     except Exception:
         result["last_cycle"] = None
 
+    try:
+        from kv import kv_get_perf_inception, kv_get_perf_snapshots
+        result["perf"] = {
+            "inception": kv_get_perf_inception(),
+            "snapshots": kv_get_perf_snapshots(),
+        }
+    except Exception:
+        result["perf"] = None
+
     start_response("200 OK", [
         ("Content-Type", "application/json"),
         ("Access-Control-Allow-Origin", "*"),

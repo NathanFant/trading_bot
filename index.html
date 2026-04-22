@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FGI Trading Bot</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -130,8 +131,13 @@
       <div id="bayesian-body"><span style="color:var(--muted);font-size:13px">No data yet — improves with live trades</span></div>
     </div>
     <div class="mini-card">
-      <h3>Strategy Config</h3>
-      <div id="config-body" class="loading">Loading…</div>
+      <h3>Performance vs Benchmarks</h3>
+      <div id="perf-empty" style="color:var(--muted);font-size:13px;padding:16px 0">
+        No data yet — populates after first cycle run
+      </div>
+      <div style="position:relative;height:180px">
+        <canvas id="perf-chart"></canvas>
+      </div>
     </div>
   </div>
 
@@ -259,13 +265,8 @@ function render(d) {
       <div class="stat-row"><span>SELL success rate</span><span class="val up">${(b.sell_confidence*100).toFixed(1)}%</span></div>`;
   }
 
-  // Config
-  const c = d.config || {};
-  document.getElementById('config-body').innerHTML = `
-    <div class="stat-row"><span>Buy z threshold</span><span class="val">${c.buy_z}</span></div>
-    <div class="stat-row"><span>Sell z threshold</span><span class="val">+${c.sell_z}</span></div>
-    <div class="stat-row"><span>Buy size</span><span class="val">${(c.min_buy_pct*100).toFixed(0)}% → ${(c.max_buy_pct*100).toFixed(0)}%</span></div>
-    <div class="stat-row"><span>Sell size</span><span class="val">${(c.sell_pct*100).toFixed(0)}% of SOL</span></div>`;
+  // Performance chart
+  renderPerfChart(d.perf);
 
   // Trades
   const trades = d.trades || [];
@@ -286,6 +287,75 @@ function render(d) {
         <thead><tr><th>Time</th><th>Action</th><th>Quantity</th><th>Price</th><th>USD</th><th>Signal</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
+  }
+}
+
+let _perfChart = null;
+
+function renderPerfChart(perf) {
+  const inception = perf?.inception;
+  const snapshots = perf?.snapshots || [];
+  const emptyEl = document.getElementById('perf-empty');
+  const canvas = document.getElementById('perf-chart');
+
+  if (!inception || snapshots.length === 0) {
+    emptyEl.style.display = 'block';
+    canvas.style.display = 'none';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  canvas.style.display = 'block';
+
+  // Inception point + subsequent snapshots, deduped by day
+  const seen = new Set();
+  const points = [inception, ...snapshots].filter(p => {
+    const day = Math.floor(p.timestamp / 86400);
+    if (seen.has(day)) return false;
+    seen.add(day);
+    return true;
+  }).sort((a, b) => a.timestamp - b.timestamp);
+
+  const labels  = points.map(p => fmtDate(p.timestamp));
+  const botPct  = points.map(p => +((p.bot_usd  / inception.bot_usd  - 1) * 100).toFixed(2));
+  const btcPct  = points.map(p => p.btc_price != null ? +((p.btc_price / inception.btc_price - 1) * 100).toFixed(2) : null);
+  const vooPct  = points.map(p => p.voo_price != null ? +((p.voo_price / inception.voo_price - 1) * 100).toFixed(2) : null);
+
+  const chartCfg = {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Bot', data: botPct, borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.08)', tension: 0.3, pointRadius: 3, fill: true },
+        { label: 'BTC', data: btcPct, borderColor: '#f7931a', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, spanGaps: true },
+        { label: 'VOO', data: vooPct, borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, spanGaps: true },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(1)}%`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', maxTicksLimit: 5, font: { size: 11 } }, grid: { color: '#21262d' } },
+        y: {
+          ticks: { color: '#8b949e', font: { size: 11 }, callback: v => (v >= 0 ? '+' : '') + v.toFixed(0) + '%' },
+          grid: { color: '#21262d' },
+        },
+      },
+    },
+  };
+
+  if (_perfChart) {
+    _perfChart.data = chartCfg.data;
+    _perfChart.update();
+  } else {
+    _perfChart = new Chart(canvas, chartCfg);
   }
 }
 
