@@ -247,6 +247,12 @@ class BacktestParams:
     max_buy_pct: float = 0.60         # buy fraction at max_scale_z or beyond
     max_scale_z: float = 4.0          # z-score magnitude at which max_buy_pct is reached
 
+    # Z-score-scaled sell sizing
+    scale_sell_with_z: bool = False   # if True, sell fraction grows with greed intensity
+    min_sell_pct: float = 0.30        # sell fraction at exactly the sell threshold z-score
+    max_sell_pct: float = 0.90        # sell fraction at max_sell_z or beyond
+    max_sell_z: float = 4.0           # z-score magnitude at which max_sell_pct is reached
+
 
 @dataclass
 class BacktestResult:
@@ -297,7 +303,15 @@ def run_backtest(bars: list[DailyBar], params: BacktestParams) -> BacktestResult
         effective_buy_price = bar.price * (1 + params.spread_pct)
         effective_sell_price = bar.price * (1 - params.spread_pct)
 
-        _sell_pct = params.sell_pct if params.sell_pct is not None else params.position_size_pct
+        if params.scale_sell_with_z:
+            z_pos = signal.z_score
+            thresh = params.sell_z_threshold
+            scale = min(1.0, max(0.0,
+                (z_pos - thresh) / max(params.max_sell_z - thresh, 1e-6)
+            ))
+            _sell_pct = params.min_sell_pct + scale * (params.max_sell_pct - params.min_sell_pct)
+        else:
+            _sell_pct = params.sell_pct if params.sell_pct is not None else params.position_size_pct
 
         if signal.action == "BUY" and cash > 1.0:
             if params.scale_buy_with_z:
@@ -514,6 +528,57 @@ def run_scaled_monte_carlo(
 
         if (i + 1) % 50 == 0:
             logger.info("  %d/%d scaled simulations complete", i + 1, n_simulations)
+
+    results.sort(key=lambda r: r.sharpe_ratio, reverse=True)
+    return results
+
+
+def run_scaled_sell_monte_carlo(
+    bars: list[DailyBar],
+    n_simulations: int = 200,
+    seed: int = 55,
+    symbol: str = "SOL-USD",
+    starting_cash: float = 10_000.0,
+) -> list[BacktestResult]:
+    """
+    Z-scaled buy AND z-scaled sell. Sell fraction ramps from min_sell_pct
+    (at sell threshold) to max_sell_pct (at max_sell_z).
+    """
+    rng = random.Random(seed)
+    spread = SPREAD_PCT.get(symbol, 0.01)
+    results: list[BacktestResult] = []
+
+    logger.info("Running %d scaled-sell Monte Carlo simulations for %s…", n_simulations, symbol)
+    for i in range(n_simulations):
+        min_buy = rng.uniform(0.05, 0.40)
+        max_buy = rng.uniform(min_buy + 0.10, 0.95)
+        min_sell = rng.uniform(0.10, 0.50)
+        max_sell = rng.uniform(min_sell + 0.10, 0.99)
+        params = BacktestParams(
+            buy_z_threshold=rng.uniform(-3.0, -0.5),
+            sell_z_threshold=rng.uniform(0.5, 3.0),
+            lookback_days=rng.randint(30, 180),
+            min_confidence=rng.uniform(0.50, 0.80),
+            starting_cash=starting_cash,
+            symbol=symbol,
+            spread_pct=spread,
+            scale_buy_with_z=True,
+            min_buy_pct=min_buy,
+            max_buy_pct=max_buy,
+            max_scale_z=rng.uniform(2.5, 5.0),
+            scale_sell_with_z=True,
+            min_sell_pct=min_sell,
+            max_sell_pct=max_sell,
+            max_sell_z=rng.uniform(2.5, 5.0),
+        )
+        try:
+            result = run_backtest(bars, params)
+            results.append(result)
+        except Exception as exc:
+            logger.debug("Scaled-sell simulation %d failed: %s", i, exc)
+
+        if (i + 1) % 50 == 0:
+            logger.info("  %d/%d scaled-sell simulations complete", i + 1, n_simulations)
 
     results.sort(key=lambda r: r.sharpe_ratio, reverse=True)
     return results
