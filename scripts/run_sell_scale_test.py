@@ -11,10 +11,13 @@ Periods: 12, 24, 36, 60 months | $100 starting | SOL-USD | 200 sims each
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dotenv import load_dotenv
-load_dotenv(".env.local")
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env.local"))
 
 logging.basicConfig(
     level=logging.INFO,

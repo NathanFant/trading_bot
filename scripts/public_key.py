@@ -2,7 +2,7 @@ import nacl.signing  # type: ignore[import-untyped]
 import base64
 from pathlib import Path
 
-ENV_FILE = Path(__file__).parent / ".env.local"
+ENV_FILE = Path(__file__).parent.parent / ".env.local"
 
 
 def load_env() -> dict[str, str]:

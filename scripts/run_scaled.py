@@ -13,13 +13,16 @@ Periods: 12, 24, 36, 60 months  |  Starting capital: $100  |  SOL-USD
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dotenv import load_dotenv
 
-load_dotenv(".env.local")
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env.local"))
 
 logging.basicConfig(
     level=logging.INFO,
