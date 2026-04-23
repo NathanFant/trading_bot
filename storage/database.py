@@ -242,3 +242,29 @@ def load_bayesian_state() -> dict[str, float] | None:
     if row:
         return json.loads(row["value"])  # type: ignore[no-any-return]
     return None
+
+
+# ── Perp state ────────────────────────────────────────────────────────────────
+
+def save_perp_state(state: dict) -> None:
+    # KV takes priority on Vercel; SQLite used locally
+    from kv import available as kv_available, kv_set
+    if kv_available():
+        kv_set("perp_state", state)
+        return
+    with _conn() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO bayesian_state (key, value) VALUES ('perp_state', ?)",
+            (json.dumps(state),),
+        )
+
+
+def load_perp_state() -> dict | None:
+    from kv import available as kv_available, kv_get
+    if kv_available():
+        return kv_get("perp_state")  # type: ignore[return-value]
+    with _conn() as con:
+        row = con.execute("SELECT value FROM bayesian_state WHERE key='perp_state'").fetchone()
+    if row:
+        return json.loads(row["value"])  # type: ignore[no-any-return]
+    return None

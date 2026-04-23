@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { MockStatusData } from '../types'
 
 function timeAgo(ts: number): string {
@@ -11,12 +12,22 @@ function timeAgo(ts: number): string {
 interface Props {
   data: MockStatusData
   lastFetch: number
-  onRefresh: () => void
+  onRefresh: () => Promise<void> | void
 }
 
 export default function Header({ data, lastFetch, onRefresh }: Props) {
+  const [refreshing, setRefreshing] = useState(false)
   const cycleAgo  = data.last_cycle_ts ? timeAgo(data.last_cycle_ts) : 'never'
   const cycleAction = data.last_cycle_result?.action ?? '—'
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    try {
+      await Promise.resolve(onRefresh())
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   return (
     <header className="header">
@@ -32,7 +43,9 @@ export default function Header({ data, lastFetch, onRefresh }: Props) {
           <span className="badge badge-price">SOL ${data.sol_price.toFixed(2)}</span>
         )}
         <span className="badge badge-paper">PAPER</span>
-        <button className="btn" onClick={onRefresh}>↻ Refresh</button>
+        <button className="btn" onClick={handleRefresh} disabled={refreshing}>
+          <span className={refreshing ? 'refresh-icon-rotating' : ''}>↻</span> Refresh
+        </button>
       </div>
     </header>
   )
