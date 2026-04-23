@@ -1,11 +1,15 @@
 {
   "builds": [
-    { "src": "package.json",   "use": "@vercel/static-build", "config": { "distDir": "dist" } },
-    { "src": "api/cycle.py",   "use": "@vercel/python" },
-    { "src": "api/status.py",  "use": "@vercel/python" }
+    { "src": "package.json",       "use": "@vercel/static-build", "config": { "distDir": "dist" } },
+    { "src": "api/cycle.py",       "use": "@vercel/python" },
+    { "src": "api/status.py",      "use": "@vercel/python" },
+    { "src": "api/mock_status.py", "use": "@vercel/python" },
+    { "src": "api/mock_cycle.py",  "use": "@vercel/python" }
   ],
   "routes": [
-    { "src": "/api/cycle",  "dest": "/api/cycle.py"  },
-    { "src": "/api/status", "dest": "/api/status.py" }
+    { "src": "/api/cycle",       "dest": "/api/cycle.py"      },
+    { "src": "/api/status",      "dest": "/api/status.py"     },
+    { "src": "/api/mock_status", "dest": "/api/mock_status.py" },
+    { "src": "/api/mock_cycle",  "dest": "/api/mock_cycle.py"  }
   ]
 }

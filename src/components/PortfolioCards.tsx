@@ -1,68 +1,53 @@
-import { useAnimatedValue } from '../hooks/useAnimatedValue'
-import { useFlash } from '../hooks/useFlash'
-import type { Portfolio } from '../types'
+import type { MockStatusData } from '../types'
 
-function fmtUSD(n: number) {
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function fmtUSD(n: number, digits = 2) {
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
-interface AnimatedCardProps {
-  label: string
-  value: number
-  format: (n: number) => string
-  sub?: string
+function pnlColor(n: number) {
+  return n > 0 ? 'var(--green)' : n < 0 ? 'var(--red)' : 'var(--text)'
 }
 
-function AnimatedCard({ label, value, format, sub }: AnimatedCardProps) {
-  const animated = useAnimatedValue(value)
-  const flash = useFlash(value)
+interface Props { data: MockStatusData }
 
-  return (
-    <div className="card">
-      <div className="card-label">{label}</div>
-      <div className={`card-value ${flash === 'up' ? 'flash-up' : flash === 'down' ? 'flash-down' : ''}`}>
-        {format(animated)}
-      </div>
-      {sub && <div className="card-sub">{sub}</div>}
-    </div>
-  )
-}
-
-interface Props {
-  portfolio: Portfolio
-  symbol: string
-}
-
-export default function PortfolioCards({ portfolio, symbol }: Props) {
-  const asset = symbol.split('-')[0]
-
-  if (portfolio.error) {
-    return (
-      <div className="cards">
-        <div className="card">
-          <div className="card-label">Portfolio</div>
-          <div style={{ color: 'var(--red)', fontSize: 13 }}>{portfolio.error}</div>
-        </div>
-      </div>
-    )
-  }
+export default function PortfolioCards({ data }: Props) {
+  const pnlUsd = data.portfolio_usd - data.start_usd
 
   return (
     <div className="cards">
-      <AnimatedCard label="Total Value" value={portfolio.total} format={fmtUSD} sub={symbol} />
-      <AnimatedCard label="Cash" value={portfolio.cash} format={fmtUSD} sub="available" />
-      <AnimatedCard
-        label={`${asset} Holdings`}
-        value={portfolio.sol_qty}
-        format={n => `${n.toFixed(6)} ${asset}`}
-        sub={fmtUSD(portfolio.sol_value)}
-      />
-      <AnimatedCard
-        label={`${asset} Price`}
-        value={portfolio.sol_price}
-        format={fmtUSD}
-        sub="mid-market"
-      />
+      <div className="card">
+        <div className="card-label">Portfolio Value</div>
+        <div className="card-value">{fmtUSD(data.portfolio_usd)}</div>
+        <div className="card-sub">started {fmtUSD(data.start_usd)}</div>
+      </div>
+
+      <div className="card">
+        <div className="card-label">Total PnL</div>
+        <div className="card-value" style={{ color: pnlColor(pnlUsd) }}>
+          {pnlUsd >= 0 ? '+' : ''}{fmtUSD(pnlUsd)}
+        </div>
+        <div className="card-sub" style={{ color: pnlColor(data.pnl_pct) }}>
+          {data.pnl_pct >= 0 ? '+' : ''}{data.pnl_pct.toFixed(2)}%
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-label">SOL B&amp;H</div>
+        <div className="card-value" style={{ color: data.sol_bh_pct != null ? pnlColor(data.sol_bh_pct) : 'var(--muted)' }}>
+          {data.sol_bh_pct != null
+            ? `${data.sol_bh_pct >= 0 ? '+' : ''}${data.sol_bh_pct.toFixed(2)}%`
+            : '—'}
+        </div>
+        <div className="card-sub">buy &amp; hold benchmark</div>
+      </div>
+
+      <div className="card">
+        <div className="card-label">Max Drawdown</div>
+        <div className="card-value" style={{ color: data.stats.max_drawdown_pct > 10 ? 'var(--red)' : 'var(--text)' }}>
+          {data.stats.max_drawdown_pct.toFixed(1)}%
+        </div>
+        <div className="card-sub">from peak equity</div>
+      </div>
     </div>
   )
 }

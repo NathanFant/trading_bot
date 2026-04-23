@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { StatusData } from '../types'
+import type { MockStatusData } from '../types'
 
 export function useStatusData(intervalMs = 60_000) {
-  const [data, setData] = useState<StatusData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [data, setData]       = useState<MockStatusData | null>(null)
+  const [error, setError]     = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastFetch, setLastFetch] = useState(0)
 
   const refetch = useCallback(async () => {
     try {
-      const res = await fetch('/api/status')
+      const res = await fetch('/api/mock_status')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as StatusData
+      const json = (await res.json()) as MockStatusData
       setData(json)
       setError(null)
       setLastFetch(Date.now())

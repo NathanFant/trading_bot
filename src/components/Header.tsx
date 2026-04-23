@@ -1,37 +1,37 @@
-import type { LastCycle } from '../types'
+import type { MockStatusData } from '../types'
 
 function timeAgo(ts: number): string {
+  if (!ts) return 'never'
   const s = Math.floor(Date.now() / 1000) - ts
-  if (s < 60) return `${s}s ago`
+  if (s < 60)   return `${s}s ago`
   if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`
 }
 
 interface Props {
-  symbol: string
-  dryRun: boolean
-  dataTimestamp: number
-  lastCycle: LastCycle | null
+  data: MockStatusData
+  lastFetch: number
   onRefresh: () => void
 }
 
-export default function Header({ symbol, dryRun, dataTimestamp, lastCycle, onRefresh }: Props) {
-  const cycleInfo = lastCycle
-    ? `Cycle ${timeAgo(lastCycle.timestamp)} · ${lastCycle.last_signal}${lastCycle.last_skip_reason ? ` · skipped: ${lastCycle.last_skip_reason}` : ''}`
-    : 'No cycle yet'
+export default function Header({ data, lastFetch, onRefresh }: Props) {
+  const cycleAgo  = data.last_cycle_ts ? timeAgo(data.last_cycle_ts) : 'never'
+  const cycleAction = data.last_cycle_result?.action ?? '—'
 
   return (
     <header className="header">
       <div>
-        <div className="header-title">🤖 FGI Trading Bot</div>
+        <div className="header-title">SOL Perp Paper Trading</div>
         <div className="header-sub">
-          {symbol} · Refreshed {timeAgo(dataTimestamp)} · {cycleInfo}
+          EMA-ADX+Regime V2 · 30m · 5× lev · Cycle {cycleAgo} ({cycleAction})
+          {lastFetch ? ` · Refreshed ${Math.round((Date.now() - lastFetch) / 1000)}s ago` : ''}
         </div>
       </div>
       <div className="header-right">
-        <span className={`badge ${dryRun ? 'badge-dry' : 'badge-live'}`}>
-          {dryRun ? 'DRY RUN' : '● LIVE'}
-        </span>
+        {data.sol_price && (
+          <span className="badge badge-price">SOL ${data.sol_price.toFixed(2)}</span>
+        )}
+        <span className="badge badge-paper">PAPER</span>
         <button className="btn" onClick={onRefresh}>↻ Refresh</button>
       </div>
     </header>

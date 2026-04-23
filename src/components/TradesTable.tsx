@@ -1,4 +1,4 @@
-import type { Trade } from '../types'
+import type { MockTrade } from '../types'
 
 function fmtDate(ts: number): string {
   return new Date(ts * 1000).toLocaleString('en-US', {
@@ -6,47 +6,57 @@ function fmtDate(ts: number): string {
   })
 }
 
-function fmtUSD(n: number): string {
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function exitColor(reason: string): string {
+  if (reason === 'TP')   return 'var(--green)'
+  if (reason === 'SL')   return 'var(--red)'
+  if (reason === 'FLIP') return 'var(--blue)'
+  return 'var(--muted)'
 }
 
-interface Props {
-  trades: Trade[]
-  symbol: string
-}
+interface Props { trades: MockTrade[] }
 
-export default function TradesTable({ trades, symbol }: Props) {
-  const asset = symbol.split('-')[0]
-
+export default function TradesTable({ trades }: Props) {
   return (
     <div className="trades-panel">
-      <div className="trades-title">Recent Trades</div>
+      <div className="trades-title">Trade History (newest first)</div>
       {trades.length === 0 ? (
-        <div className="no-trades">No trades recorded yet</div>
+        <div className="no-trades">No trades yet — waiting for first signal</div>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Time</th>
-              <th>Action</th>
-              <th>Quantity</th>
-              <th>Price</th>
-              <th>USD</th>
-              <th>Signal</th>
+              <th>Exit Time</th>
+              <th>Dir</th>
+              <th>Entry</th>
+              <th>Exit</th>
+              <th>Reason</th>
+              <th>Net PnL</th>
+              <th>Fees</th>
             </tr>
           </thead>
           <tbody>
-            {trades.slice(0, 20).map(t => (
-              <tr key={t.id ?? t.timestamp}>
-                <td>{fmtDate(t.timestamp)}</td>
+            {trades.slice(0, 25).map((t, i) => (
+              <tr key={i}>
+                <td style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(t.exit_ts)}</td>
                 <td>
-                  <span className={`trade-${t.action.toLowerCase()}`}>{t.action}</span>
-                  {t.dry_run && <span className="dry-tag">dry</span>}
+                  <span style={{
+                    color: t.dir === 'LONG' ? 'var(--green)' : 'var(--red)',
+                    fontWeight: 600, fontSize: 12,
+                  }}>
+                    {t.dir}
+                  </span>
                 </td>
-                <td>{t.quantity.toFixed(6)} {asset}</td>
-                <td>{fmtUSD(t.price)}</td>
-                <td>{fmtUSD(t.usd_amount)}</td>
-                <td>FGI {t.fgi_value} ({t.z_score >= 0 ? '+' : ''}{t.z_score.toFixed(2)}σ)</td>
+                <td>${t.entry_px.toFixed(2)}</td>
+                <td>${t.exit_px.toFixed(2)}</td>
+                <td>
+                  <span style={{ color: exitColor(t.exit_reason), fontWeight: 600, fontSize: 12 }}>
+                    {t.exit_reason}
+                  </span>
+                </td>
+                <td style={{ color: t.net_pnl >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
+                  {t.net_pnl >= 0 ? '+' : ''}${t.net_pnl.toFixed(2)}
+                </td>
+                <td style={{ color: 'var(--muted)', fontSize: 11 }}>${t.fees.toFixed(2)}</td>
               </tr>
             ))}
           </tbody>

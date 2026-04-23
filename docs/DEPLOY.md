@@ -1,7 +1,7 @@
 # Deploying to Vercel (free)
 
-The bot runs as a Vercel serverless function at `/api/cycle`.
-Vercel Cron triggers it every hour. Bayesian state persists in Vercel KV (free Upstash Redis).
+The dashboard and API run as Vercel serverless functions.
+State persists in Vercel KV (free Upstash Redis).
 
 ## One-time setup
 
@@ -13,75 +13,99 @@ vercel login
 vercel --prod
 ```
 
-### 2. Add Vercel KV (persistent Bayesian state)
+### 2. Add Vercel KV (required — all state stored here)
 
-In the Vercel dashboard → your project → Storage → Create → KV Database.
+Vercel dashboard → your project → Storage → Create → KV Database.
 Vercel automatically adds `KV_REST_API_URL` and `KV_REST_API_TOKEN` to your env.
 
 ### 3. Set environment variables
 
-In the Vercel dashboard → Settings → Environment Variables, add:
+Vercel dashboard → Settings → Environment Variables:
 
 ```
+# Coinbase API (for paper trading live data)
+COINBASE_API_KEY_NAME    organizations/xxx/apiKeys/yyy
+COINBASE_API_PRIVATE_KEY <EC private key — use literal \n, not real newlines>
+
+# Shared
+CRON_SECRET              <any random string — protects cycle endpoints>
+
+# Legacy FGI bot (optional — only needed if /api/cycle is still active)
 ROBINHOOD_API_KEY        rh-api-xxxx
 ROBINHOOD_PRIVATE_KEY    <base64 private key>
 COINMARKETCAP_API_KEY    <optional>
 DISCORD_WEBHOOK_URL      <optional>
-CRON_SECRET              <any random string — protects /api/cycle>
 SYMBOL                   SOL-USD
 DRY_RUN                  true
-SCALE_BUY_WITH_Z         true
-MIN_BUY_PCT              0.24
-MAX_BUY_PCT              0.74
-MAX_SCALE_Z              4.0
-SELL_PCT                 0.65
-MIN_CONFIDENCE           0.53
-BUY_Z_THRESHOLD          -1.95
-SELL_Z_THRESHOLD         2.65
-FGI_HISTORY_DAYS         55
-DATA_DIR                 /tmp
 ```
 
-### 4. Go live
+### 4. Set up paper trading cron (every 30 min)
 
-Once dry-run logs look correct:
+Use [cron-job.org](https://cron-job.org) (free):
 
+1. Create account at cron-job.org
+2. Add cron job: `GET https://your-app.vercel.app/api/mock_cycle`
+3. Add header: `Authorization: Bearer <your CRON_SECRET>`
+4. Schedule: every 30 minutes (matches the 30m candle bars)
+
+### 5. Deploy
+
+```bash
+vercel --prod
 ```
-DRY_RUN → false
+
+The dashboard will be live at your Vercel URL. The paper trader starts tracking
+on the first cron hit. Reset state at any time:
+
+```bash
+# Curl to reset (get a fresh $1,000 start)
+curl -X GET https://your-app.vercel.app/api/mock_cycle \
+  -H "Authorization: Bearer <CRON_SECRET>" \
+  # then in Python: python api/mock_cycle.py --reset (local only)
 ```
 
-## How it works
+Or locally: `python api/mock_cycle.py --reset`
 
-- Vercel Cron calls `GET /api/cycle` every hour (`vercel.json`)
-- The function runs one complete trading cycle and exits
-- Bayesian state (the bot's learned confidence) is stored in Vercel KV and persists across invocations
-- Trade history and logs appear in Vercel's function log viewer
-- Discord webhook (optional) sends trade alerts
+## Endpoints
 
-## Cron schedule note
+| URL | Auth | Description |
+|-----|------|-------------|
+| `/` | public | Dashboard (React SPA) |
+| `/api/mock_status` | public | Paper trading state JSON |
+| `/api/mock_cycle` | CRON_SECRET | Run one 30m trading cycle |
+| `/api/status` | public | Legacy FGI bot status |
+| `/api/cycle` | CRON_SECRET | Legacy FGI trading cycle |
 
-Vercel Hobby (free) supports cron jobs — `vercel.json` is already configured for hourly.
-If your plan doesn't support sub-daily crons, use [cron-job.org](https://cron-job.org) (free):
+## How the paper trader works
 
-1. Create an account at cron-job.org
-2. Add a new cron job pointing to `https://your-app.vercel.app/api/cycle`
-3. Set Authorization header: `Bearer <your CRON_SECRET>`
-4. Schedule: every 60 minutes
+- `/api/mock_cycle` fires every 30 min via cron-job.org
+- Fetches the last 150 bars of 30m SOL perp candles from Coinbase
+- Fetches 50 bars of 6h candles for the regime filter
+- Evaluates EMA-ADX+Regime strategy (the 90-day backtest winner: +26.5%, Sharpe 19.54)
+- Manages a paper position: opens on signal, closes on SL/TP hit against live price
+- State (portfolio, trades, equity curve) persists in KV between invocations
+- Dashboard polls `/api/mock_status` every 60s and shows everything live
 
 ## Useful commands
 
 ```bash
-vercel logs               # recent function logs
-vercel env ls             # list env var names
-vercel --prod             # redeploy
+vercel logs        # recent function logs
+vercel env ls      # list env var names
+vercel --prod      # redeploy after code changes
 ```
 
 ## Local development
 
 ```bash
-# Run the full polling loop locally
-python main.py
+# Backend (port 3000) + auto-cycle every 30m
+python scripts/dev_server.py
 
-# Simulate what Vercel runs (single cycle)
-python -c "import database as db; from trader import Trader; db.init_db(); Trader().run_once()"
+# Frontend (port 5173, proxies /api → 3000)
+npm run dev
+
+# Run one cycle manually
+python api/mock_cycle.py
+
+# Reset paper state
+python api/mock_cycle.py --reset
 ```
