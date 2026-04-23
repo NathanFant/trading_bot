@@ -22,10 +22,16 @@ export default function Header({ data, lastFetch, onRefresh }: Props) {
 
   const handleRefresh = async () => {
     setRefreshing(true)
+    const startTime = Date.now()
     try {
       await Promise.resolve(onRefresh())
     } finally {
-      setRefreshing(false)
+      // Ensure at least one full rotation (1000ms) before stopping
+      const elapsed = Date.now() - startTime
+      const remainingTime = Math.max(0, 1000 - elapsed)
+      setTimeout(() => {
+        setRefreshing(false)
+      }, remainingTime)
     }
   }
 
