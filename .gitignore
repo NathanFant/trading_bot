@@ -1,6 +1,8 @@
 # Secrets — never commit
 .env.local
 .env
+.env.vercel.local
+.env.vercel.prod
 
 # Runtime data
 bot.db
@@ -29,3 +31,4 @@ dist/
 
 # Vercel
 .vercel/
+.vercel

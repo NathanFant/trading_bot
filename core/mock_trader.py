@@ -1,11 +1,16 @@
 """
-Live paper-trading engine — EMA-ADX+Regime on SOL perp 30m.
+Live paper-trading engine — GRACE strategy on SOL perp 30m.
 
-Uses the 90-day backtest winner: EMA(9/21) cross + ADX≥18 + EMA(21)>EMA(55) trend
-+ 6h EMA(21) regime filter (only trade in macro direction) + ATR health gate.
-Result: +26.5%, Sharpe 19.54, MaxDD 8.0%, WR 45.2% on 90-day SOL data.
+GRACE (Gated Regime-Aligned Cross Entry):
+  S(t) = sgn(Δ) · 1[cross_event] · 1[ADX≥18] · 1[trend_aligned] · 1[regime_aligned]
+  where Δ(t) = EMA(9,t) − EMA(21,t)
+  SL = entry − S·1.5·ATR₁₄,  TP = entry + S·4.0·ATR₁₄
 
-Call run_cycle() once per 30m bar close from a cron or script.
+Backtest: +26.5%, Sharpe 19.54, MaxDD 8.0%, WR 45.2% on 90-day SOL data.
+
+run_cycle() is safe to call every minute:
+  - fast path (every call)  : live price fetch → SL/TP check → equity snapshot
+  - slow path (new 30m bar) : 150-bar candle fetch → GRACE signal → open/flip position
 """
 
 from __future__ import annotations
@@ -39,14 +44,20 @@ SL_MULT     = 1.5
 TP_MULT     = 4.0
 ADX_MIN     = 18.0
 ATR_MA_P    = 30
-ATR_LOW     = 0.5   # skip if ATR < 0.5× ATR-MA (dead market)
-ATR_HIGH    = 2.5   # skip if ATR > 2.5× ATR-MA (volatility spike)
+ATR_LOW     = 0.5
+ATR_HIGH    = 2.5
+BAR_SEC     = 1800   # 30-minute bars
+
+
+def _current_bar_boundary(ts: int) -> int:
+    """Return the start timestamp of the most recently *completed* 30m bar."""
+    return (ts // BAR_SEC) * BAR_SEC - BAR_SEC
 
 
 def _fetch_candles(client: CoinbaseClient, gran_str: str, gran_sec: int, n_bars: int) -> pd.DataFrame:
     """Fetch the last n_bars of completed candles (excludes current forming bar)."""
     now   = int(time.time())
-    end   = now - gran_sec            # exclude current forming bar
+    end   = now - gran_sec
     start = end - (n_bars + 10) * gran_sec
     path  = (f"/api/v3/brokerage/products/{PRODUCT_ID}/candles"
              f"?start={start}&end={end}&granularity={gran_str}")
@@ -64,9 +75,7 @@ def _fetch_candles(client: CoinbaseClient, gran_str: str, gran_sec: int, n_bars:
 
 def _compute_signals(df30: pd.DataFrame, df6h: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, pd.Series]:
     """
-    EMA-ADX+Regime strategy (90-day backtest winner: +26.5%, Sharpe 19.54).
-    Adds ATR health gate to skip entries during extreme quiet or volatility spikes.
-
+    GRACE signal computation.
     Returns (signals, atr_arr, adx_series).
     """
     c = df30["close"]
@@ -77,11 +86,9 @@ def _compute_signals(df30: pd.DataFrame, df6h: pd.DataFrame) -> tuple[np.ndarray
     adx_s = adx(df30, 14)
     atr_s = atr(df30, 14)
 
-    # ATR health: skip dead markets and extreme spike conditions
     atr_ma = atr_s.rolling(ATR_MA_P).mean()
     atr_ok = (atr_s > atr_ma * ATR_LOW) & (atr_s < atr_ma * ATR_HIGH)
 
-    # 6h regime direction aligned to 30m bars
     c_reg   = df6h["close"]
     e_reg   = ema(c_reg, 21)
     reg_dir = (c_reg > e_reg).astype(int).to_numpy()
@@ -110,7 +117,6 @@ def _compute_signals(df30: pd.DataFrame, df6h: pd.DataFrame) -> tuple[np.ndarray
 
 def _indicator_snapshot(df30: pd.DataFrame, df6h: pd.DataFrame,
                         sigs: np.ndarray, adx_s: pd.Series) -> dict[str, Any]:
-    """Build the indicator state dict shown in the dashboard."""
     c30      = df30["close"]
     ef_last  = float(ema(c30, 9).iloc[-1])
     es_last  = float(ema(c30, 21).iloc[-1])
@@ -125,20 +131,20 @@ def _indicator_snapshot(df30: pd.DataFrame, df6h: pd.DataFrame,
     vol_ma_last = float(df30["volume"].rolling(20).mean().iloc[-1])
 
     return {
-        "regime":          regime,
-        "adx":             round(adx_last, 1),
-        "ema_fast":        round(ef_last, 3),
-        "ema_slow":        round(es_last, 3),
-        "ema_trend":       round(et_last, 3),
-        "ema_aligned":     ef_last > es_last,
-        "vol_surge":       vol_last > vol_ma_last * 1.1,
-        "latest_bar_ts":   int(df30["start"].iloc[-1]),
-        "last_signal":     int(sigs[-1]),
+        "regime":        regime,
+        "adx":           round(adx_last, 1),
+        "ema_fast":      round(ef_last, 3),
+        "ema_slow":      round(es_last, 3),
+        "ema_trend":     round(et_last, 3),
+        "ema_aligned":   ef_last > es_last,
+        "vol_surge":     vol_last > vol_ma_last * 1.1,
+        "latest_bar_ts": int(df30["start"].iloc[-1]),
+        "last_signal":   int(sigs[-1]),
     }
 
 
 def _close_position(state: dict, exit_px: float, reason: str, ts_now: int) -> float:
-    """Close open position, record trade, update stats. Returns portfolio after close."""
+    """Close open position, record trade, update stats. Returns updated portfolio value."""
     pos       = state["position"]
     portfolio = state["portfolio_usd"]
     dir_      = pos["dir"]
@@ -184,63 +190,42 @@ def _close_position(state: dict, exit_px: float, reason: str, ts_now: int) -> fl
 
 def run_cycle() -> dict[str, Any]:
     """
-    Run one paper-trading cycle. Safe to call from cron or script.
+    Run one paper-trading cycle. Safe to call every minute.
 
-    Flow:
-      1. Fetch latest 30m + 6h candles from Coinbase
-      2. Get live SOL price
-      3. Check open position against live price (SL/TP)
-      4. Compute signals on last completed bar
-      5. Open new position if fresh signal and not already in same direction
-      6. Save state and return summary
+    Fast path (every call):
+      1. Fetch live price (single API call)
+      2. Check open position SL/TP against live price
+      3. Append equity snapshot
+
+    Slow path (only when a new 30m bar has closed):
+      4. Fetch 150× 30m + 50× 6h candles
+      5. Compute GRACE signals
+      6. Open/flip position on fresh signal
     """
     client   = CoinbaseClient()
     state    = store.load()
     ts_now   = int(time.time())
     result: dict[str, Any] = {"ts": ts_now, "action": "none", "detail": ""}
 
-    # ── 1. Fetch candles ──────────────────────────────────────────────────────
-    try:
-        df30 = _fetch_candles(client, "THIRTY_MINUTE", 1800,  150)
-        df6h = _fetch_candles(client, "SIX_HOUR",      21600,  50)
-    except Exception as exc:
-        log.error("Candle fetch failed: %s", exc)
-        result.update(action="error", detail=str(exc))
-        state.update(last_cycle_ts=ts_now, last_cycle_result=result)
-        store.save(state)
-        return result
-
-    if df30.empty or df6h.empty or len(df30) < 60:
-        result.update(action="error", detail="insufficient candle data")
-        state.update(last_cycle_ts=ts_now, last_cycle_result=result)
-        store.save(state)
-        return result
-
-    # ── 2. Live price ─────────────────────────────────────────────────────────
+    # ── Fast path: live price ─────────────────────────────────────────────────
     try:
         sol_price = float(sum(client.get_best_bid_ask(PRODUCT_ID)) / 2)
-    except Exception:
-        sol_price = float(df30["close"].iloc[-1])
+    except Exception as exc:
+        log.warning("Price fetch failed: %s", exc)
+        result.update(action="error", detail=f"price fetch failed: {exc}")
+        state.update(last_cycle_ts=ts_now, last_cycle_result=result)
+        store.save(state)
+        return result
 
     state["sol_price"] = round(sol_price, 4)
-
     if state.get("sol_price_at_start") is None:
         state["sol_price_at_start"] = sol_price
         state["sol_start_ts"]       = ts_now
 
-    # ── 3. Compute signals ────────────────────────────────────────────────────
-    sigs, atr_arr, adx_s = _compute_signals(df30, df6h)
-
-    latest_bar_ts = int(df30["start"].iloc[-1])
-    last_sig      = int(sigs[-1])
-    last_atr      = float(atr_arr[-1])
-
-    state["indicator_state"] = _indicator_snapshot(df30, df6h, sigs, adx_s)
-
     portfolio = state["portfolio_usd"]
     pos       = state.get("position")
 
-    # ── 4. Check open position ────────────────────────────────────────────────
+    # ── Fast path: SL/TP check ────────────────────────────────────────────────
     if pos is not None:
         dir_ = pos["dir"]
         sl   = pos["sl"]
@@ -258,33 +243,65 @@ def run_cycle() -> dict[str, Any]:
             pos = None
             result.update(
                 action=f"close_{reason.lower()}",
-                detail=f"Closed {dir_} @ {exit_px:.2f} ({reason}), net ${state['trades'][-1]['net_pnl']:+.2f}",
+                detail=(f"Closed {dir_} @ {exit_px:.2f} ({reason}), "
+                        f"net ${state['trades'][-1]['net_pnl']:+.2f}"),
             )
             log.info(result["detail"])
 
-    # ── 5. Equity snapshot ────────────────────────────────────────────────────
+    # ── Fast path: equity snapshot ────────────────────────────────────────────
     unreal = 0.0
     if state.get("position"):
         p2     = state["position"]
         unreal = _gross(p2["dir"], p2["entry_px"], sol_price, p2["contracts"])
     equity_now = round(portfolio + unreal, 2)
     state["equity_history"].append({"ts": ts_now, "usd": equity_now})
-    state["equity_history"] = state["equity_history"][-2016:]  # ~42 days at 30m
+    state["equity_history"] = state["equity_history"][-2016:]   # ~42 days at 30m
 
-    # ── 6. New signal ─────────────────────────────────────────────────────────
-    if last_sig != 0 and latest_bar_ts > state.get("last_bar_ts", 0):
-        state["last_bar_ts"] = latest_bar_ts
+    # ── Slow path: only on new 30m bar ────────────────────────────────────────
+    new_bar_ts = _current_bar_boundary(ts_now)
+    if new_bar_ts <= state.get("last_bar_ts", 0):
+        # Same bar as last full cycle — skip candle fetch
+        state["last_cycle_ts"]     = ts_now
+        state["last_cycle_result"] = result
+        store.save(state)
+        return result
+
+    try:
+        df30 = _fetch_candles(client, "THIRTY_MINUTE", 1800,  150)
+        df6h = _fetch_candles(client, "SIX_HOUR",      21600,  50)
+    except Exception as exc:
+        log.error("Candle fetch failed: %s", exc)
+        result.update(action="error", detail=str(exc))
+        state.update(last_cycle_ts=ts_now, last_cycle_result=result)
+        store.save(state)
+        return result
+
+    if df30.empty or df6h.empty or len(df30) < 60:
+        result.update(action="error", detail="insufficient candle data")
+        state.update(last_cycle_ts=ts_now, last_cycle_result=result)
+        store.save(state)
+        return result
+
+    sigs, atr_arr, adx_s = _compute_signals(df30, df6h)
+
+    latest_bar_ts = int(df30["start"].iloc[-1])
+    last_sig      = int(sigs[-1])
+    last_atr      = float(atr_arr[-1])
+
+    state["indicator_state"] = _indicator_snapshot(df30, df6h, sigs, adx_s)
+    state["last_bar_ts"]     = latest_bar_ts
+
+    # ── Slow path: new signal → open/flip position ────────────────────────────
+    if last_sig != 0 and result.get("action") == "none":
         new_dir = "LONG" if last_sig > 0 else "SHORT"
-
         cur_pos = state.get("position")
+
         if cur_pos and cur_pos["dir"] == new_dir:
             result.setdefault("action", "hold")
         elif portfolio >= 50:
-            # Flip: close opposite position if open
             if cur_pos:
                 portfolio = _close_position(state, sol_price, "FLIP", ts_now)
 
-            # Open new position at live price
             ctrs = _num_contracts(portfolio, sol_price)
             if new_dir == "LONG":
                 sl_ = sol_price - SL_MULT * last_atr
