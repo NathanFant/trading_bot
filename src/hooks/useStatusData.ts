@@ -9,7 +9,7 @@ export function useStatusData(intervalMs = 60_000) {
 
   const refetch = useCallback(async () => {
     try {
-      const res = await fetch('/api/mock_status')
+      const res = await fetch(`/api/mock_status?_t=${Date.now()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = (await res.json()) as MockStatusData
       setData(json)

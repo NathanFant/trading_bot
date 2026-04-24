@@ -94,5 +94,6 @@ def app(environ, start_response):
     start_response("200 OK", [
         ("Content-Type", "application/json"),
         ("Access-Control-Allow-Origin", "*"),
+        ("Cache-Control", "no-store, max-age=0"),
     ])
     return [json.dumps(result).encode()]
