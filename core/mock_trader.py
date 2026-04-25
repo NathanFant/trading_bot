@@ -285,8 +285,25 @@ def run_cycle() -> dict[str, Any]:
     sigs, atr_arr, adx_s = _compute_signals(df30, df6h)
 
     latest_bar_ts = int(df30["start"].iloc[-1])
-    last_sig      = int(sigs[-1])
-    last_atr      = float(atr_arr[-1])
+
+    # Find the most recent signal on any bar newer than last_bar_ts.
+    # Checking only sigs[-1] misses signals that fired hours ago when the
+    # cron was not running every minute (e.g. after a manual SL injection,
+    # after a restart, or after a multi-bar gap in processing).
+    prev_bar_ts   = state.get("last_bar_ts", 0)
+    bar_ts_arr    = df30["start"].values
+    new_mask      = bar_ts_arr > prev_bar_ts
+    new_indices   = np.where(new_mask)[0]
+
+    last_sig    = 0
+    last_atr    = float(atr_arr[-1])
+    if len(new_indices) > 0:
+        new_sigs  = sigs[new_mask]
+        nonzero   = np.where(new_sigs != 0)[0]
+        if len(nonzero) > 0:
+            pick     = new_indices[nonzero[-1]]   # most recent signal bar
+            last_sig = int(sigs[pick])
+            last_atr = float(atr_arr[pick])
 
     state["indicator_state"] = _indicator_snapshot(df30, df6h, sigs, adx_s)
     state["last_bar_ts"]     = latest_bar_ts
