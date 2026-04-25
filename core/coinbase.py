@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 import jwt
 import requests
+from requests.exceptions import ConnectionError, Timeout, HTTPError
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 _BASE = "https://api.coinbase.com"
@@ -92,28 +93,56 @@ class CoinbaseClient:
             headers={"kid": self._key_name, "nonce": uuid.uuid4().hex},
         )
 
-    def _get(self, path: str) -> dict:
-        # JWT uri claim must use the path without query params
+    def _get(self, path: str, _retries: int = 3, _backoff: float = 0.5) -> dict:
         uri_path = path.split("?")[0]
-        token = self._token("GET", uri_path)
-        r = requests.get(
-            f"{_BASE}{path}",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
-        )
-        r.raise_for_status()
-        return r.json()
+        last_exc: Exception | None = None
+        for attempt in range(_retries):
+            try:
+                token = self._token("GET", uri_path)
+                r = requests.get(
+                    f"{_BASE}{path}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=10,
+                )
+                # Don't retry client errors (4xx) — they won't self-heal
+                if 400 <= r.status_code < 500:
+                    r.raise_for_status()
+                r.raise_for_status()
+                return r.json()
+            except (ConnectionError, Timeout) as exc:
+                last_exc = exc
+            except HTTPError as exc:
+                if exc.response is not None and exc.response.status_code < 500:
+                    raise
+                last_exc = exc
+            if attempt < _retries - 1:
+                time.sleep(_backoff * (2 ** attempt))
+        raise last_exc  # type: ignore[misc]
 
-    def _post(self, path: str, body: dict) -> dict:
-        token = self._token("POST", path)
-        r = requests.post(
-            f"{_BASE}{path}",
-            json=body,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            timeout=10,
-        )
-        r.raise_for_status()
-        return r.json()
+    def _post(self, path: str, body: dict, _retries: int = 3, _backoff: float = 0.5) -> dict:
+        last_exc: Exception | None = None
+        for attempt in range(_retries):
+            try:
+                token = self._token("POST", path)
+                r = requests.post(
+                    f"{_BASE}{path}",
+                    json=body,
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                    timeout=10,
+                )
+                if 400 <= r.status_code < 500:
+                    r.raise_for_status()
+                r.raise_for_status()
+                return r.json()
+            except (ConnectionError, Timeout) as exc:
+                last_exc = exc
+            except HTTPError as exc:
+                if exc.response is not None and exc.response.status_code < 500:
+                    raise
+                last_exc = exc
+            if attempt < _retries - 1:
+                time.sleep(_backoff * (2 ** attempt))
+        raise last_exc  # type: ignore[misc]
 
     # ── Public ────────────────────────────────────────────────────────────────
 

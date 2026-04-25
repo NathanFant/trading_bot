@@ -38,12 +38,14 @@ from core.micro_backtest import (
     ema, atr, adx,
 )
 from core.strategy_config import ADX_MIN, SL_MULT, TP_MULT, REG_EMA_P, ATR_MA_P, ATR_LOW, ATR_HIGH
+from core import discord_notify as discord
 import storage.mock_store as store
 
 log = logging.getLogger(__name__)
 
-PRODUCT_ID  = "SLP-20DEC30-CDE"
-BAR_SEC     = 1800   # 30-minute bars
+PRODUCT_ID      = "SLP-20DEC30-CDE"
+BAR_SEC         = 1800    # 30-minute bars
+PRICE_SPIKE_PCT = 5.0     # warn if price moves >5% since last cycle (don't skip, just flag)
 
 
 def _current_bar_boundary(ts: int) -> int:
@@ -70,10 +72,15 @@ def _fetch_candles(client: CoinbaseClient, gran_str: str, gran_sec: int, n_bars:
     return df.tail(n_bars).reset_index(drop=True)
 
 
-def _compute_signals(df30: pd.DataFrame, df6h: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, pd.Series]:
+def _compute_signals(
+    df30: pd.DataFrame, df6h: pd.DataFrame
+) -> tuple[np.ndarray, np.ndarray, pd.Series, list[dict]]:
     """
     GRACE signal computation.
-    Returns (signals, atr_arr, adx_series).
+    Returns (signals, atr_arr, adx_series, bar_gate_log).
+
+    bar_gate_log is a list of dicts — one per bar — recording which gates
+    passed/blocked so missed setups can be audited from the dashboard.
     """
     c = df30["close"]
 
@@ -109,7 +116,26 @@ def _compute_signals(df30: pd.DataFrame, df6h: pd.DataFrame) -> tuple[np.ndarray
     sigs[cross_up   & strong & up_trend & (aligned == 1) & atr_ok] = +1
     sigs[cross_down & strong & dn_trend & (aligned == 0) & atr_ok] = -1
 
-    return sigs, atr_s.to_numpy(), adx_s
+    # Gate log for the last bar only (most recent completed bar)
+    i = len(df30) - 1
+    cross_val = bool(cross_up.iloc[i] or cross_down.iloc[i])
+    direction = "up" if bool(cross_up.iloc[i]) else ("down" if bool(cross_down.iloc[i]) else "none")
+    gate_log = {
+        "ts":           int(df30["start"].iloc[i]),
+        "close":        round(float(c.iloc[i]), 4),
+        "adx":          round(float(adx_s.iloc[i]), 2),
+        "adx_pass":     bool(strong.iloc[i]),
+        "cross":        cross_val,
+        "cross_dir":    direction,
+        "trend_pass":   bool(up_trend.iloc[i] if direction == "up" else dn_trend.iloc[i]),
+        "regime":       int(aligned[i]),
+        "regime_pass":  bool((direction == "up" and aligned[i] == 1) or
+                             (direction == "down" and aligned[i] == 0)),
+        "atr_ok":       bool(atr_ok.iloc[i]),
+        "signal":       int(sigs[i]),
+    }
+
+    return sigs, atr_s.to_numpy(), adx_s, gate_log
 
 
 def _indicator_snapshot(df30: pd.DataFrame, df6h: pd.DataFrame,
@@ -182,6 +208,11 @@ def _close_position(state: dict, exit_px: float, reason: str, ts_now: int) -> fl
 
     state["position"]      = None
     state["portfolio_usd"] = round(portfolio, 2)
+
+    discord.notify_closed(
+        dir_, ep, exit_px, reason, round(net, 2), round(fee, 2),
+        round(portfolio, 2), state.get("start_usd", 1000.0),
+    )
     return portfolio
 
 
@@ -191,13 +222,14 @@ def run_cycle() -> dict[str, Any]:
 
     Fast path (every call):
       1. Fetch live price (single API call)
-      2. Check open position SL/TP against live price
-      3. Append equity snapshot
+      2. Sanity-check for price spikes vs last known price
+      3. Check open position SL/TP against live price
+      4. Append equity snapshot
 
     Slow path (only when a new 30m bar has closed):
-      4. Fetch 150× 30m + 50× 6h candles
-      5. Compute GRACE signals
-      6. Open/flip position on fresh signal
+      5. Fetch 150× 30m + 50× 6h candles
+      6. Compute GRACE signals + gate log
+      7. Open/flip position on fresh signal
     """
     client   = CoinbaseClient()
     state    = store.load()
@@ -209,10 +241,23 @@ def run_cycle() -> dict[str, Any]:
         sol_price = float(sum(client.get_best_bid_ask(PRODUCT_ID)) / 2)
     except Exception as exc:
         log.warning("Price fetch failed: %s", exc)
-        result.update(action="error", detail=f"price fetch failed: {exc}")
+        msg = f"price fetch failed: {exc}"
+        result.update(action="error", detail=msg)
         state.update(last_cycle_ts=ts_now, last_cycle_result=result)
         store.save(state)
+        discord.notify_error(msg)
         return result
+
+    # Price-spike guard: warn if price moved >PRICE_SPIKE_PCT% since last cycle
+    prev_price = state.get("sol_price")
+    if prev_price and prev_price > 0:
+        move_pct = abs(sol_price - prev_price) / prev_price * 100
+        if move_pct > PRICE_SPIKE_PCT:
+            log.warning("Price spike detected: %.2f → %.2f (%.1f%%)", prev_price, sol_price, move_pct)
+            discord.notify_error(
+                f"Price spike: ${prev_price:.2f} → ${sol_price:.2f} ({move_pct:.1f}% in 1 min) — "
+                "SL/TP checks proceeding with live price."
+            )
 
     state["sol_price"] = round(sol_price, 4)
     if state.get("sol_price_at_start") is None:
@@ -257,7 +302,6 @@ def run_cycle() -> dict[str, Any]:
     # ── Slow path: only on new 30m bar ────────────────────────────────────────
     new_bar_ts = _current_bar_boundary(ts_now)
     if new_bar_ts <= state.get("last_bar_ts", 0):
-        # Same bar as last full cycle — skip candle fetch
         state["last_cycle_ts"]     = ts_now
         state["last_cycle_result"] = result
         store.save(state)
@@ -279,14 +323,15 @@ def run_cycle() -> dict[str, Any]:
         store.save(state)
         return result
 
-    sigs, atr_arr, adx_s = _compute_signals(df30, df6h)
+    sigs, atr_arr, adx_s, gate_log = _compute_signals(df30, df6h)
+
+    # ── Signal gate log ───────────────────────────────────────────────────────
+    signal_log = state.get("signal_log", [])
+    signal_log.append(gate_log)
+    state["signal_log"] = signal_log[-500:]   # ~10 days of 30m bars
 
     latest_bar_ts = int(df30["start"].iloc[-1])
 
-    # Find the most recent signal on any bar newer than last_bar_ts.
-    # Checking only sigs[-1] misses signals that fired hours ago when the
-    # cron was not running every minute (e.g. after a manual SL injection,
-    # after a restart, or after a multi-bar gap in processing).
     prev_bar_ts   = state.get("last_bar_ts", 0)
     bar_ts_arr    = df30["start"].values
     new_mask      = bar_ts_arr > prev_bar_ts
@@ -298,7 +343,7 @@ def run_cycle() -> dict[str, Any]:
         new_sigs  = sigs[new_mask]
         nonzero   = np.where(new_sigs != 0)[0]
         if len(nonzero) > 0:
-            pick     = new_indices[nonzero[-1]]   # most recent signal bar
+            pick     = new_indices[nonzero[-1]]
             last_sig = int(sigs[pick])
             last_atr = float(atr_arr[pick])
 
@@ -341,6 +386,10 @@ def run_cycle() -> dict[str, Any]:
                             f"| SL {sl_:.2f} | TP {tp_:.2f}"),
                 )
                 log.info(result["detail"])
+                discord.notify_opened(
+                    new_dir, sol_price, sl_, tp_, ctrs,
+                    round(portfolio, 2), state.get("start_usd", 1000.0),
+                )
 
     state["portfolio_usd"]     = round(portfolio, 2)
     state["last_cycle_ts"]     = ts_now
