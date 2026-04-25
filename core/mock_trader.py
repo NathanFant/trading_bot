@@ -1,12 +1,14 @@
 """
-Live paper-trading engine — GRACE strategy on SOL perp 30m.
+Live paper-trading engine — GRACE v2 strategy on SOL perp 30m.
 
 GRACE (Gated Regime-Aligned Cross Entry):
-  S(t) = sgn(Δ) · 1[cross_event] · 1[ADX≥18] · 1[trend_aligned] · 1[regime_aligned]
+  S(t) = sgn(Δ) · 1[cross_event] · 1[ADX≥25] · 1[trend_aligned] · 1[regime_aligned]
   where Δ(t) = EMA(9,t) − EMA(21,t)
-  SL = entry − S·1.5·ATR₁₄,  TP = entry + S·4.0·ATR₁₄
+  SL = entry − S·2.5·ATR₁₄,  TP = entry + S·4.0·ATR₁₄
+  Regime filter: 6h close vs EMA(50) on 6h
 
-Backtest: +26.5%, Sharpe 19.54, MaxDD 8.0%, WR 45.2% on 90-day SOL data.
+Backtest (252d perp history): +88.8%, Sharpe 22.61, MaxDD 14.9%, WR 52.8%, 53 trades.
+vs SOL B&H: −53.7% on same period.
 
 run_cycle() is safe to call every minute:
   - fast path (every call)  : live price fetch → SL/TP check → equity snapshot
@@ -40,12 +42,13 @@ import storage.mock_store as store
 log = logging.getLogger(__name__)
 
 PRODUCT_ID  = "SLP-20DEC30-CDE"
-SL_MULT     = 1.5
+SL_MULT     = 2.5
 TP_MULT     = 4.0
-ADX_MIN     = 18.0
+ADX_MIN     = 25.0
 ATR_MA_P    = 30
 ATR_LOW     = 0.5
 ATR_HIGH    = 2.5
+REG_EMA_P   = 50     # regime filter: 6h EMA period (was 21)
 BAR_SEC     = 1800   # 30-minute bars
 
 
@@ -90,7 +93,7 @@ def _compute_signals(df30: pd.DataFrame, df6h: pd.DataFrame) -> tuple[np.ndarray
     atr_ok = (atr_s > atr_ma * ATR_LOW) & (atr_s < atr_ma * ATR_HIGH)
 
     c_reg   = df6h["close"]
-    e_reg   = ema(c_reg, 21)
+    e_reg   = ema(c_reg, REG_EMA_P)
     reg_dir = (c_reg > e_reg).astype(int).to_numpy()
     ts_reg  = df6h["start"].to_numpy()
     ts_sig  = df30["start"].to_numpy()
@@ -124,7 +127,7 @@ def _indicator_snapshot(df30: pd.DataFrame, df6h: pd.DataFrame,
     adx_last = float(adx_s.iloc[-1])
 
     c_reg      = df6h["close"]
-    e_reg_last = float(ema(c_reg, 21).iloc[-1])
+    e_reg_last = float(ema(c_reg, REG_EMA_P).iloc[-1])
     regime     = "BULL" if float(c_reg.iloc[-1]) > e_reg_last else "BEAR"
 
     vol_last    = float(df30["volume"].iloc[-1])
