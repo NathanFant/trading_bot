@@ -33,32 +33,40 @@ export default function EquityChart({ trades, startUsd }: Props) {
 
   // Build equity curve: one point per trade exit
   let running = startUsd
-  const points: { ts: number; usd: number; trade: MockTrade }[] = sorted.map(t => {
+  const tradePoints: { ts: number; usd: number; trade: MockTrade }[] = sorted.map(t => {
     running += t.net_pnl
     return { ts: t.exit_ts, usd: running, trade: t }
   })
 
-  const labels   = [fmtTime(sorted[0].entry_ts), ...points.map(p => fmtTime(p.ts))]
-  const values   = [startUsd, ...points.map(p => parseFloat(p.usd.toFixed(2)))]
-  const baseline = Array(labels.length).fill(startUsd)
-  const isGreen  = values[values.length - 1] >= startUsd
+  const nowTs      = Math.floor(Date.now() / 1000)
+  const preTs      = sorted[0].entry_ts - 86400   // 1 day before first trade
 
-  // Per-point colors: green dot for win, red for loss
-  const pointColors = [
-    'transparent',
-    ...points.map(p => (p.trade.net_pnl > 0 ? '#3fb950' : '#f85149')),
-  ]
+  // Full timeline: pre-trade anchor → trade exits → now
+  const tsTicks    = [preTs, ...tradePoints.map(p => p.ts), nowTs]
+  const valueTicks = [startUsd, ...tradePoints.map(p => parseFloat(p.usd.toFixed(2))), parseFloat(running.toFixed(2))]
+  const baseline   = Array(tsTicks.length).fill(startUsd)
+  const isGreen    = running >= startUsd
+
+  // Per-point colors: invisible on anchors, green/red on trade exits
+  const pointColors = tsTicks.map((_, i) => {
+    if (i === 0 || i === tsTicks.length - 1) return 'transparent'
+    const p = tradePoints[i - 1]
+    return p.trade.net_pnl > 0 ? '#3fb950' : '#f85149'
+  })
+  const pointRadii = tsTicks.map((_, i) =>
+    (i === 0 || i === tsTicks.length - 1) ? 0 : 5
+  )
 
   const chartData = {
-    labels,
+    labels: tsTicks.map(fmtTime),
     datasets: [
       {
         label: 'Equity',
-        data: values,
+        data: valueTicks,
         borderColor: isGreen ? '#3fb950' : '#f85149',
         backgroundColor: isGreen ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.06)',
         tension: 0,
-        pointRadius: [0, ...points.map(() => 5)],
+        pointRadius: pointRadii,
         pointHoverRadius: 7,
         pointBackgroundColor: pointColors,
         pointBorderColor: pointColors,
@@ -92,12 +100,17 @@ export default function EquityChart({ trades, startUsd }: Props) {
           label: ctx => {
             if (ctx.datasetIndex !== 0) return `Start: $${startUsd}`
             const idx = ctx.dataIndex
-            if (idx === 0) return `Start: $${startUsd}`
-            const p = points[idx - 1]
-            const pct = ((p.usd - startUsd) / startUsd * 100)
+            const usd = valueTicks[idx]
+            const pct = ((usd - startUsd) / startUsd * 100)
+            const pctStr = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`
+            // anchor points (pre-trade or trailing now-point)
+            if (idx === 0 || idx === tsTicks.length - 1) {
+              return `Equity: $${usd.toFixed(2)} (${pctStr})`
+            }
+            const p = tradePoints[idx - 1]
             const sign = p.trade.net_pnl >= 0 ? '+' : ''
             return [
-              `Equity: $${p.usd.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`,
+              `Equity: $${usd.toFixed(2)} (${pctStr})`,
               `${p.trade.dir} ${p.trade.exit_reason}  ${sign}$${p.trade.net_pnl.toFixed(2)}`,
             ]
           },
