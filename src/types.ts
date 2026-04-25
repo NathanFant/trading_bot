@@ -50,6 +50,16 @@ export interface MockStats {
   max_drawdown_pct: number
 }
 
+export interface StrategyConfig {
+  adx_min: number
+  sl_mult: number
+  tp_mult: number
+  reg_ema_p: number
+  atr_ma_p: number
+  atr_low: number
+  atr_high: number
+}
+
 export interface MockStatusData {
   timestamp: number
   portfolio_usd: number
@@ -65,4 +75,5 @@ export interface MockStatusData {
   stats: MockStats
   last_cycle_ts: number
   last_cycle_result: Record<string, string>
+  strategy_config: StrategyConfig
 }

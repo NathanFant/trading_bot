@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import storage.mock_store as store
 from core.micro_backtest import _gross
+import core.strategy_config as strategy_config
 
 
 def _enrich(state: dict) -> dict:
@@ -85,6 +86,7 @@ def _enrich(state: dict) -> dict:
         },
         "last_cycle_ts":      state.get("last_cycle_ts", 0),
         "last_cycle_result":  state.get("last_cycle_result", {}),
+        "strategy_config":    strategy_config.as_dict(),
     }
 
 
