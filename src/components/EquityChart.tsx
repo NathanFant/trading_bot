@@ -5,7 +5,7 @@ import {
   type ChartOptions,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
-import type { EquityPoint } from '../types'
+import type { MockTrade } from '../types'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler)
 
@@ -15,43 +15,56 @@ function fmtTime(ts: number): string {
 }
 
 interface Props {
-  history: EquityPoint[]
+  trades: MockTrade[]
   startUsd: number
 }
 
-export default function EquityChart({ history, startUsd }: Props) {
-  if (history.length < 2) {
+export default function EquityChart({ trades, startUsd }: Props) {
+  const sorted = [...trades].sort((a, b) => a.exit_ts - b.exit_ts)
+
+  if (sorted.length === 0) {
     return (
       <div className="mini-card" style={{ marginBottom: 12 }}>
         <div className="mini-card-title">Equity Curve</div>
-        <div className="perf-empty">Populates after first cycle run</div>
+        <div className="perf-empty">Populates after first trade</div>
       </div>
     )
   }
 
-  // Sample to max 200 points to keep chart snappy
-  const step   = Math.max(1, Math.floor(history.length / 200))
-  const points = history.filter((_, i) => i % step === 0 || i === history.length - 1)
+  // Build equity curve: one point per trade exit
+  let running = startUsd
+  const points: { ts: number; usd: number; trade: MockTrade }[] = sorted.map(t => {
+    running += t.net_pnl
+    return { ts: t.exit_ts, usd: running, trade: t }
+  })
 
-  const labels  = points.map(p => fmtTime(p.ts))
-  const values  = points.map(p => p.usd)
-  const baseline = Array(points.length).fill(startUsd)
+  const labels   = [fmtTime(sorted[0].entry_ts), ...points.map(p => fmtTime(p.ts))]
+  const values   = [startUsd, ...points.map(p => parseFloat(p.usd.toFixed(2)))]
+  const baseline = Array(labels.length).fill(startUsd)
+  const isGreen  = values[values.length - 1] >= startUsd
 
-  const isGreen = values[values.length - 1] >= startUsd
+  // Per-point colors: green dot for win, red for loss
+  const pointColors = [
+    'transparent',
+    ...points.map(p => (p.trade.net_pnl > 0 ? '#3fb950' : '#f85149')),
+  ]
 
   const chartData = {
     labels,
     datasets: [
       {
-        label: 'Portfolio',
+        label: 'Equity',
         data: values,
         borderColor: isGreen ? '#3fb950' : '#f85149',
         backgroundColor: isGreen ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.06)',
-        tension: 0.3,
-        pointRadius: 0,
-        pointHoverRadius: 4,
+        tension: 0,
+        pointRadius: [0, ...points.map(() => 5)],
+        pointHoverRadius: 7,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
         fill: true,
         borderWidth: 2,
+        stepped: true,
       },
       {
         label: `Start ($${startUsd})`,
@@ -61,6 +74,7 @@ export default function EquityChart({ history, startUsd }: Props) {
         borderDash: [4, 4],
         pointRadius: 0,
         tension: 0,
+        stepped: false,
       },
     ],
   }
@@ -76,16 +90,23 @@ export default function EquityChart({ history, startUsd }: Props) {
       tooltip: {
         callbacks: {
           label: ctx => {
-            const v = ctx.parsed.y ?? 0
-            const pct = ((v - startUsd) / startUsd * 100)
-            return `${ctx.dataset.label}: $${v.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`
+            if (ctx.datasetIndex !== 0) return `Start: $${startUsd}`
+            const idx = ctx.dataIndex
+            if (idx === 0) return `Start: $${startUsd}`
+            const p = points[idx - 1]
+            const pct = ((p.usd - startUsd) / startUsd * 100)
+            const sign = p.trade.net_pnl >= 0 ? '+' : ''
+            return [
+              `Equity: $${p.usd.toFixed(2)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`,
+              `${p.trade.dir} ${p.trade.exit_reason}  ${sign}$${p.trade.net_pnl.toFixed(2)}`,
+            ]
           },
         },
       },
     },
     scales: {
       x: {
-        ticks: { color: '#8b949e', maxTicksLimit: 6, font: { size: 10 }, maxRotation: 0 },
+        ticks: { color: '#8b949e', maxTicksLimit: 8, font: { size: 10 }, maxRotation: 0 },
         grid: { color: '#21262d' },
       },
       y: {

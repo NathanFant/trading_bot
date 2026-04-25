@@ -37,18 +37,12 @@ from core.micro_backtest import (
     _fees, _gross, _num_contracts,
     ema, atr, adx,
 )
+from core.strategy_config import ADX_MIN, SL_MULT, TP_MULT, REG_EMA_P, ATR_MA_P, ATR_LOW, ATR_HIGH
 import storage.mock_store as store
 
 log = logging.getLogger(__name__)
 
 PRODUCT_ID  = "SLP-20DEC30-CDE"
-SL_MULT     = 2.5
-TP_MULT     = 4.0
-ADX_MIN     = 25.0
-ATR_MA_P    = 30
-ATR_LOW     = 0.5
-ATR_HIGH    = 2.5
-REG_EMA_P   = 50     # regime filter: 6h EMA period (was 21)
 BAR_SEC     = 1800   # 30-minute bars
 
 

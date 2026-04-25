@@ -1,4 +1,4 @@
-import type { IndicatorState } from '../types'
+import type { IndicatorState, StrategyConfig } from '../types'
 
 function timeAgo(ts: number): string {
   if (!ts) return '—'
@@ -22,9 +22,10 @@ function Dot({ ok }: Dot) {
 interface Props {
   indicators: IndicatorState | null
   lastCycleTs: number
+  strategyConfig: StrategyConfig
 }
 
-export default function SignalPanel({ indicators, lastCycleTs }: Props) {
+export default function SignalPanel({ indicators, lastCycleTs, strategyConfig }: Props) {
   if (!indicators) {
     return (
       <div className="mini-card">
@@ -64,8 +65,8 @@ export default function SignalPanel({ indicators, lastCycleTs }: Props) {
 
       <div className="stat-row">
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>ADX (trend strength)</span>
-        <span style={{ fontSize: 13, color: indicators.adx >= 18 ? 'var(--green)' : 'var(--muted)' }}>
-          {indicators.adx.toFixed(1)} {indicators.adx >= 18 ? '✓' : '✗ <18'}
+        <span style={{ fontSize: 13, color: indicators.adx >= strategyConfig.adx_min ? 'var(--green)' : 'var(--muted)' }}>
+          {indicators.adx.toFixed(1)} {indicators.adx >= strategyConfig.adx_min ? '✓' : `✗ <${strategyConfig.adx_min}`}
         </span>
       </div>
       <div className="stat-row">

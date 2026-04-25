@@ -28,9 +28,9 @@ export default function App() {
       <PortfolioCards data={data} />
       <div className="row-2">
         <PositionPanel position={data.position} solPrice={data.sol_price} />
-        <SignalPanel indicators={data.indicator_state} lastCycleTs={data.last_cycle_ts} />
+        <SignalPanel indicators={data.indicator_state} lastCycleTs={data.last_cycle_ts} strategyConfig={data.strategy_config} />
       </div>
-      <EquityChart history={data.equity_history} startUsd={data.start_usd} />
+      <EquityChart trades={data.trades} startUsd={data.start_usd} />
       <StatsRow stats={data.stats} />
       <TradesTable trades={data.trades} />
     </div>
