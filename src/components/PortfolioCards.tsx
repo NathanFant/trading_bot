@@ -8,6 +8,15 @@ function pnlColor(n: number) {
   return n > 0 ? 'var(--green)' : n < 0 ? 'var(--red)' : 'var(--text)'
 }
 
+function drawdownColor(pct: number): string {
+  // 0% → green (#3fb950), 100% → red (#f85149), interpolated in RGB
+  const t = Math.min(pct / 100, 1)
+  const r = Math.round(63  + (248 - 63)  * t)
+  const g = Math.round(185 + (81  - 185) * t)
+  const b = Math.round(80  + (73  - 80)  * t)
+  return `rgb(${r},${g},${b})`
+}
+
 interface Props { data: MockStatusData }
 
 export default function PortfolioCards({ data }: Props) {
@@ -43,7 +52,7 @@ export default function PortfolioCards({ data }: Props) {
 
       <div className="card">
         <div className="card-label">Max Drawdown</div>
-        <div className="card-value" style={{ color: data.stats.max_drawdown_pct > 10 ? 'var(--red)' : 'var(--text)' }}>
+        <div className="card-value" style={{ color: drawdownColor(data.stats.max_drawdown_pct) }}>
           {data.stats.max_drawdown_pct.toFixed(1)}%
         </div>
         <div className="card-sub">from peak equity</div>
